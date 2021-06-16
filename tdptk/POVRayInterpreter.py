@@ -180,6 +180,12 @@ class POVRayInterpreter(GCodeBaseInterpreter):
 			self._include_point(new)
 			self._points.append((old, new))
 
+	def add_triangle(self, vertex1, vertex2, vertex3):
+		self._include_point(vertex1)
+		self._include_point(vertex2)
+		self._include_point(vertex3)
+		## TODO IMPLEMENT ME
+
 	def render_povray_source(self):
 		def error_fnc(text):
 			raise Exception(text)

@@ -26,6 +26,7 @@ from .BaseAction import BaseAction
 from .XGCodeFile import XGCodeFile
 from .GCodeInterpreter import GCodeParser
 from .POVRayInterpreter import POVRayInterpreter, POVRayStyle
+from .STLFile import STLFile
 
 class ActionRender(BaseAction):
 	def run(self):
@@ -45,12 +46,21 @@ class ActionRender(BaseAction):
 		elif filetype == "g":
 			with open(self._args.input_filename) as f:
 				gcode_data = f.read()
+		elif filetype == "stl":
+			stl = STLFile.read(self._args.input_filename)
 		else:
 			raise NotImplementedError("Unknown input file type: %s" % (filetype))
 
 		povray_interpreter = POVRayInterpreter(width = self._args.dimensions[0], height = self._args.dimensions[1], oversample_factor = self._args.oversample, style = POVRayStyle(self._args.style), verbosity = self._args.verbose)
-		parser = GCodeParser(povray_interpreter)
-		parser.parse_all(gcode_data)
+		if filetype in [ "gx", "g" ]:
+			parser = GCodeParser(povray_interpreter)
+			parser.parse_all(gcode_data)
+		elif filetype == "stl":
+			for triangle in stl:
+				povray_interpreter.add_triangle((triangle.vertex1_x, triangle.vertex1_y, triangle.vertex1_z), (triangle.vertex2_x, triangle.vertex2_y, triangle.vertex2_z), (triangle.vertex3_x, triangle.vertex3_y, triangle.vertex3_z))
+		else:
+			raise NotImplementedError("Unknown input file type: %s" % (filetype))
+
 		if self._args.output_filename.endswith(".pov"):
 			with open(self._args.output_filename, "w") as f:
 				f.write(povray_interpreter.render_povray_source())
