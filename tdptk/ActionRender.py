@@ -1,0 +1,58 @@
+#	tdptk - 3d Printing Toolkit
+#	Copyright (C) 2021-2021 Johannes Bauer
+#
+#	This file is part of tdptk.
+#
+#	tdptk is free software; you can redistribute it and/or modify
+#	it under the terms of the GNU General Public License as published by
+#	the Free Software Foundation; this program is ONLY licensed under
+#	version 3 of the License, later versions are explicitly excluded.
+#
+#	tdptk is distributed in the hope that it will be useful,
+#	but WITHOUT ANY WARRANTY; without even the implied warranty of
+#	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#	GNU General Public License for more details.
+#
+#	You should have received a copy of the GNU General Public License
+#	along with tdptk; if not, write to the Free Software
+#	Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#	Johannes Bauer <JohannesBauer@gmx.de>
+
+import os
+import sys
+import json
+from .BaseAction import BaseAction
+from .XGCodeFile import XGCodeFile
+from .GCodeInterpreter import GCodeParser
+from .POVRayInterpreter import POVRayInterpreter, POVRayStyle
+
+class ActionRender(BaseAction):
+	def run(self):
+		if not self._args.force:
+			if os.path.exists(self._args.output_filename):
+				print("Refusing to overwrite: %s" % (self._args.output_filename))
+				sys.exit(1)
+
+		if self._args.filetype == "auto":
+			filetype = os.path.splitext(self._args.input_filename)[1][1:]
+		else:
+			filetype = self._args.filetype
+
+		if filetype == "gx":
+			xgcode = XGCodeFile.read(self._args.input_filename)
+			gcode_data = xgcode.gcode_data.decode("ascii")
+		elif filetype == "g":
+			with open(self._args.input_filename) as f:
+				gcode_data = f.read()
+		else:
+			raise NotImplementedError("Unknown input file type: %s" % (filetype))
+
+		povray_interpreter = POVRayInterpreter(width = self._args.dimensions[0], height = self._args.dimensions[1], oversample_factor = self._args.oversample, style = POVRayStyle(self._args.style), verbosity = self._args.verbose)
+		parser = GCodeParser(povray_interpreter)
+		parser.parse_all(gcode_data)
+		if self._args.output_filename.endswith(".pov"):
+			with open(self._args.output_filename, "w") as f:
+				f.write(povray_interpreter.render_povray_source())
+		else:
+			povray_interpreter.render_image(self._args.output_filename, additional_povray_options = self._args.povray, show_image = self._args.show, trim_image = not self._args.no_trim)
