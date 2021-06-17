@@ -25,8 +25,8 @@ import tempfile
 import subprocess
 from .BaseAction import BaseAction
 from .XGCodeFile import XGCodeFile, XGCodeFlags
-from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser
-from .POVRayInterpreter import POVRayInterpreter, POVRayStyle
+from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodePOVRayHook
+from .POVRayRenderer import POVRayRenderer, POVRayStyle
 
 class ActionCreateGX(BaseAction):
 	def run(self):
@@ -38,17 +38,17 @@ class ActionCreateGX(BaseAction):
 		with open(self._args.gcode_filename) as f:
 			gcode_data = f.read()
 
-		# Parse G-code to gather metadata about file
+		# Render the G-code using POV-Ray so we have a preview bitmap
+		povray_renderer = POVRayRenderer(width = 80, height = 60, oversample_factor = 4, style = POVRayStyle.BlackWhite, verbosity = self._args.verbose)
+
+		# Parse G-code to gather metadata about file and fill the POV-Ray renderer with data
 		interpreter = GCodeBaseInterpreter()
+		interpreter.add_hook(GCodePOVRayHook(povray_renderer))
 		parser = GCodeParser(interpreter)
 		parser.parse_all(gcode_data)
 
-		# Render the G-code using POV-ray so we have a preview bitmap
-		povray_interpreter = POVRayInterpreter(width = 80, height = 60, oversample_factor = 4, style = POVRayStyle.BlackWhite, verbosity = self._args.verbose)
-		parser = GCodeParser(povray_interpreter)
-		parser.parse_all(gcode_data)
 		with tempfile.NamedTemporaryFile(suffix = ".png") as png_outfile, tempfile.NamedTemporaryFile(suffix = ".bmp") as bmp_outfile:
-			povray_interpreter.render_image(png_outfile.name, trim_image = True)
+			povray_renderer.render_image(png_outfile.name, trim_image = True)
 			subprocess.check_call([ "convert", "-colorspace", "RGB", png_outfile.name, bmp_outfile.name ])
 			bitmap_data = bmp_outfile.read()
 

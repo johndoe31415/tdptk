@@ -24,8 +24,8 @@ import sys
 import json
 from .BaseAction import BaseAction
 from .XGCodeFile import XGCodeFile
-from .GCodeInterpreter import GCodeParser
-from .POVRayInterpreter import POVRayInterpreter, POVRayStyle
+from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodePOVRayHook
+from .POVRayRenderer import POVRayRenderer, POVRayStyle
 from .STLFile import STLFile
 
 class ActionRender(BaseAction):
@@ -51,18 +51,18 @@ class ActionRender(BaseAction):
 		else:
 			raise NotImplementedError("Unknown input file type: %s" % (filetype))
 
-		povray_interpreter = POVRayInterpreter(width = self._args.dimensions[0], height = self._args.dimensions[1], oversample_factor = self._args.oversample, style = POVRayStyle(self._args.style), verbosity = self._args.verbose)
+		povray_renderer = POVRayRenderer(width = self._args.dimensions[0], height = self._args.dimensions[1], oversample_factor = self._args.oversample, style = POVRayStyle(self._args.style), verbosity = self._args.verbose)
 		if filetype in [ "gx", "g" ]:
-			parser = GCodeParser(povray_interpreter)
+			parser = GCodeParser(GCodeBaseInterpreter(hooks = [ GCodePOVRayHook(povray_renderer) ]))
 			parser.parse_all(gcode_data)
 		elif filetype == "stl":
 			for triangle in stl:
-				povray_interpreter.add_triangle((triangle.vertex1_x, triangle.vertex1_y, triangle.vertex1_z), (triangle.vertex2_x, triangle.vertex2_y, triangle.vertex2_z), (triangle.vertex3_x, triangle.vertex3_y, triangle.vertex3_z))
+				povray_renderer.add_triangle((triangle.vertex1_x, triangle.vertex1_y, triangle.vertex1_z), (triangle.vertex2_x, triangle.vertex2_y, triangle.vertex2_z), (triangle.vertex3_x, triangle.vertex3_y, triangle.vertex3_z))
 		else:
 			raise NotImplementedError("Unknown input file type: %s" % (filetype))
 
 		if self._args.output_filename.endswith(".pov"):
 			with open(self._args.output_filename, "w") as f:
-				f.write(povray_interpreter.render_povray_source())
+				f.write(povray_renderer.render_source())
 		else:
-			povray_interpreter.render_image(self._args.output_filename, additional_povray_options = self._args.povray, show_image = self._args.show, trim_image = not self._args.no_trim)
+			povray_renderer.render_image(self._args.output_filename, additional_povray_options = self._args.povray, show_image = self._args.show, trim_image = not self._args.no_trim)

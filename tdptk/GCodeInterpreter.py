@@ -54,8 +54,21 @@ class GCodeCommandArguments():
 	def __getitem__(self, key):
 		return self.as_dict[key]
 
+class GCodeHook():
+	def __init__(self, interpreter = None):
+		self._interpreter = interpreter
+
+	def claim(self, interpreter):
+		self._interpreter = interpreter
+
+	def extrude(self, tool, old_pos, new_pos):
+		pass
+
+	def movement(self, old_pos, new_pos):
+		pass
+
 class GCodeBaseInterpreter():
-	def __init__(self):
+	def __init__(self, hooks = None):
 		self._pos = { }
 		self._pos_absolute = False
 		self._total_extruded_length = collections.defaultdict(float)
@@ -64,6 +77,16 @@ class GCodeBaseInterpreter():
 		self._tool = 0
 		self._bed_maxtemp = 0
 		self._tool_maxtemp = collections.defaultdict(float)
+		if hooks is None:
+			self._hooks = [ ]
+		else:
+			self._hooks = hooks
+			for hook in self._hooks:
+				hook.claim(self)
+
+	def add_hook(self, hook):
+		hook.claim(self)
+		self._hooks.append(hook)
 
 	@property
 	def pos(self):
@@ -113,7 +136,8 @@ class GCodeBaseInterpreter():
 			}.get(support_type, support_type)
 
 	def _extrude(self, tool, old_pos, new_pos):
-		pass
+		for hook in self._hooks:
+			hook.extrude(tool, old_pos, new_pos)
 
 	def _movement(self, old_pos, new_pos):
 		extruded_length = new_pos["E"] - old_pos["E"]
@@ -121,6 +145,8 @@ class GCodeBaseInterpreter():
 		if extruded_length > 0:
 			self._extrude(self.tool, old_pos, new_pos)
 		self._movement_command_count += 1
+		for hook in self._hooks:
+			hook.movement(old_pos, new_pos)
 
 	def command(self, command_text, command_arg):
 		if command_text in [ "G0", "G1" ]:
@@ -174,3 +200,26 @@ class GCodeParser():
 	def parse_all(self, gcode):
 		for line in gcode.split("\n"):
 			self.parse(line)
+
+
+class GCodePOVRayHook(GCodeHook):
+	def __init__(self, povray_renderer):
+		super().__init__(self)
+		self._renderer = povray_renderer
+		self._stats = {
+			"extrude_commands":		0,
+			"wrong_area":			0,
+		}
+
+	@property
+	def stats(self):
+		return self._stats
+
+	def extrude(self, tool, old_pos, new_pos):
+		self._stats["extrude_commands"] += 1
+
+		if self._interpreter.area not in [ "shell", "infill" ]:
+			self._stats["wrong_area"] += 1
+			return
+
+		self._renderer.add_cylinder(old_pos, new_pos)

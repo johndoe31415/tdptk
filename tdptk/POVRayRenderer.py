@@ -88,8 +88,8 @@ ${error("Unknown color style '%s'" % (style))}
 
 #declare tdp_object = object {
 	union {
-%for ((x1, y1, z1), (x2, y2, z2)) in points:
-		cylinder{ <${x1}, ${z1}, ${y1}>, <${x2}, ${z2}, ${y2}>, ${nozzle_diameter / 2} }
+%for ((x1, y1, z1), (x2, y2, z2)) in cylinders:
+		cylinder{ <${x1}, ${z1}, ${y1}>, <${x2}, ${z2}, ${y2}>, ${cylinder_diameter / 2} }
 %endfor
 %for ((x1, y1, z1), (x2, y2, z2), (x3, y3, z3)) in triangles:
 		triangle{ <${x1}, ${z1}, ${y1}>, <${x2}, ${z2}, ${y2}>,  <${x3}, ${z3}, ${y3}> }
@@ -132,78 +132,38 @@ ${error("Unknown color style '%s'" % (style))}
 tdp_object
 """, strict_undefined = True)
 
-class POVRayInterpreter(GCodeBaseInterpreter):
-	def __init__(self, width = 800, height = 600, nozzle_diameter = 0.4, oversample_factor = 1, style = POVRayStyle.BlackWhite, mode = POVRayMode.Default, verbosity = 0):
+class POVRayRenderer():
+	def __init__(self, width = 800, height = 600, cylinder_diameter = 0.4, oversample_factor = 1, style = POVRayStyle.BlackWhite, mode = POVRayMode.Default, verbosity = 0):
 		super().__init__()
 		assert(isinstance(style, POVRayStyle))
 		assert(isinstance(mode, POVRayMode))
 		self._width = width
 		self._height = height
-		self._nozzle_diameter = nozzle_diameter
+		self._cylinder_diameter = cylinder_diameter
 		self._oversample_factor = oversample_factor
 		self._style = style
 		self._mode = mode
 		self._verbosity = verbosity
-		self._points = [ ]
+		self._cylinders = [ ]
 		self._triangles = [ ]
-		self._maxpoint = None
-		self._minpoint = None
-		self._stats = {
-			"extrude_commands":		0,
-			"wrong_area":			0,
-			"rendered":				0,
-		}
 
-	def _include_point(self, point):
-		if self._maxpoint is None:
-			self._maxpoint = list(point)
-		else:
-			for i in range(3):
-				self._maxpoint[i] = max(self._maxpoint[i], point[i])
-		if self._minpoint is None:
-			self._minpoint = list(point)
-		else:
-			for i in range(3):
-				self._minpoint[i] = min(self._minpoint[i], point[i])
-
-	def _extrude(self, tool, old_pos, new_pos):
-		super()._extrude(tool, old_pos, new_pos)
-
-		self._stats["extrude_commands"] += 1
-
-		if self.area not in [ "shell", "infill" ]:
-			self._stats["wrong_area"] += 1
-			return
-
+	def add_cylinder(self, old_pos, new_pos):
 		old = (old_pos["X"], old_pos["Y"], old_pos["Z"])
 		new = (new_pos["X"], new_pos["Y"], new_pos["Z"])
 		distance = math.sqrt((old[0] - new[0]) ** 2 + (old[1] - new[1]) ** 2 + (old[2] - new[2]) ** 2)
 		if distance > 0:
-			self._stats["rendered"] += 1
-			self._include_point(old)
-			self._include_point(new)
-			self._points.append((old, new))
+			self._cylinders.append((old, new))
 
 	def add_triangle(self, vertex1, vertex2, vertex3):
-		self._include_point(vertex1)
-		self._include_point(vertex2)
-		self._include_point(vertex3)
 		self._triangles.append((vertex1, vertex2, vertex3))
 
-	def render_povray_source(self):
+	def render_source(self):
 		def error_fnc(text):
 			raise Exception(text)
-		center = [ (self._minpoint[i] + self._maxpoint[i]) / 2 for i in range(3) ]
-		maxdim = max(abs(self._minpoint[i] - self._maxpoint[i]) for i in range(3))
 		if self._verbosity >= 1:
-			print("%d extrusion commands found, %d ignored because in wrong area (%.1f%%), %d rendered (%.1f%%)" % (self._stats["extrude_commands"],
-				self._stats["wrong_area"], self._stats["wrong_area"] / self._stats["extrude_commands"] * 100,
-				self._stats["rendered"], self._stats["rendered"] / self._stats["extrude_commands"] * 100
-			))
-		if self._verbosity >= 2:
-			print("Determined centerpoint to be %.3f %.3f %.3f, maximum dimension %.3f" % (center[0], center[1], center[2], maxdim))
+			print("%d cylinders (diameter %.2fmm) and %d triangles to render." % (len(self._cylinders), len(self._triangles), self._cylinder_diameter))
 		scaling_factor = 7
-		return _TEMPLATE.render(points = self._points, triangles = self._triangles, scaling_factor = scaling_factor, nozzle_diameter = self._nozzle_diameter, minpoint = self._minpoint, maxpoint = self._maxpoint, center = center, maxdim = maxdim, style = self._style.name, error = error_fnc)
+		return _TEMPLATE.render(cylinders = self._cylinders, triangles = self._triangles, scaling_factor = scaling_factor, cylinder_diameter = self._cylinder_diameter, style = self._style.name, error = error_fnc)
 
 	def render_image(self, image_filename, additional_povray_options = None, show_image = False, trim_image = False):
 		bg_color = {
@@ -239,7 +199,7 @@ class POVRayInterpreter(GCodeBaseInterpreter):
 				]
 			if additional_povray_options is not None:
 				povray_options += additional_povray_options
-			pov_file.write(self.render_povray_source())
+			pov_file.write(self.render_source())
 			pov_file.flush()
 			povray_cmdline = [ "povray" ] + povray_options + [ pov_file.name ]
 			if self._verbosity >= 3:
