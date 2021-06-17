@@ -91,6 +91,9 @@ ${error("Unknown color style '%s'" % (style))}
 %for ((x1, y1, z1), (x2, y2, z2)) in points:
 		cylinder{ <${x1}, ${z1}, ${y1}>, <${x2}, ${z2}, ${y2}>, ${nozzle_diameter / 2} }
 %endfor
+%for ((x1, y1, z1), (x2, y2, z2), (x3, y3, z3)) in triangles:
+		triangle{ <${x1}, ${z1}, ${y1}>, <${x2}, ${z2}, ${y2}>,  <${x3}, ${z3}, ${y3}> }
+%endfor
 	}
 	texture {
 %if style == "BlackWhite":
@@ -142,6 +145,7 @@ class POVRayInterpreter(GCodeBaseInterpreter):
 		self._mode = mode
 		self._verbosity = verbosity
 		self._points = [ ]
+		self._triangles = [ ]
 		self._maxpoint = None
 		self._minpoint = None
 		self._stats = {
@@ -184,7 +188,7 @@ class POVRayInterpreter(GCodeBaseInterpreter):
 		self._include_point(vertex1)
 		self._include_point(vertex2)
 		self._include_point(vertex3)
-		## TODO IMPLEMENT ME
+		self._triangles.append((vertex1, vertex2, vertex3))
 
 	def render_povray_source(self):
 		def error_fnc(text):
@@ -199,7 +203,7 @@ class POVRayInterpreter(GCodeBaseInterpreter):
 		if self._verbosity >= 2:
 			print("Determined centerpoint to be %.3f %.3f %.3f, maximum dimension %.3f" % (center[0], center[1], center[2], maxdim))
 		scaling_factor = 7
-		return _TEMPLATE.render(points = self._points, scaling_factor = scaling_factor, nozzle_diameter = self._nozzle_diameter, minpoint = self._minpoint, maxpoint = self._maxpoint, center = center, maxdim = maxdim, style = self._style.name, error = error_fnc)
+		return _TEMPLATE.render(points = self._points, triangles = self._triangles, scaling_factor = scaling_factor, nozzle_diameter = self._nozzle_diameter, minpoint = self._minpoint, maxpoint = self._maxpoint, center = center, maxdim = maxdim, style = self._style.name, error = error_fnc)
 
 	def render_image(self, image_filename, additional_povray_options = None, show_image = False, trim_image = False):
 		bg_color = {
