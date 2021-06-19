@@ -20,6 +20,7 @@
 #	Johannes Bauer <JohannesBauer@gmx.de>
 
 import re
+import enum
 import collections
 from .Exceptions import MalformedGcodeException
 
@@ -61,22 +62,29 @@ class GCodeHook():
 	def claim(self, interpreter):
 		self._interpreter = interpreter
 
-	def extrude(self, tool, old_pos, new_pos):
+	def extrude(self, tool, old_pos, new_pos, extruded_length):
 		pass
 
 	def movement(self, old_pos, new_pos):
+		pass
+
+	def tool_change(self, tool):
+		pass
+
+	def bed_temperature(self, temp_degc):
+		pass
+
+	def nozzle_temperature(self, tool, temp_degc):
+		pass
+
+	def comment(self, comment):
 		pass
 
 class GCodeBaseInterpreter():
 	def __init__(self, hooks = None):
 		self._pos = { }
 		self._pos_absolute = False
-		self._total_extruded_length = collections.defaultdict(float)
-		self._movement_command_count = 0
-		self._area = None
 		self._tool = 0
-		self._bed_maxtemp = 0
-		self._tool_maxtemp = collections.defaultdict(float)
 		if hooks is None:
 			self._hooks = [ ]
 		else:
@@ -99,54 +107,22 @@ class GCodeBaseInterpreter():
 		self._pos[self.tool] = value
 
 	@property
-	def area(self):
-		return self._area
-
-	@property
 	def tool(self):
 		return self._tool
 
-	@property
-	def total_extruded_length(self):
-		return self._total_extruded_length
-
-	@property
-	def bed_max_temp(self):
-		return self._bed_maxtemp
-
-	@property
-	def tool_max_temp(self):
-		return self._tool_maxtemp
-
-	def comment(self, comment_text):
-		if comment_text in [ "shell", "infill", "raft" ]:
-			self._area = comment_text
-		elif comment_text == "support-start":
-			self._area = "support"
-		elif comment_text == "support-end":
-			self._area = None
-		elif comment_text.startswith("TYPE:"):
-			support_type = comment_text[5:]
-			self._area = {
-				"FILL":			"infill",
-				"SKIN":			"shell",
-				"WALL-INNER":	"infill",
-				"WALL-OUTER":	"shell",
-				"SUPPORT":		"support",
-			}.get(support_type, support_type)
-
-	def _extrude(self, tool, old_pos, new_pos):
+	def _fire_hooks(self, hook_name, *args):
 		for hook in self._hooks:
-			hook.extrude(tool, old_pos, new_pos)
+			method = getattr(hook, hook_name)
+			method(*args)
 
 	def _movement(self, old_pos, new_pos):
 		extruded_length = new_pos["E"] - old_pos["E"]
-		self._total_extruded_length[self.tool] += extruded_length
+		self._fire_hooks("movement", old_pos, new_pos)
 		if extruded_length > 0:
-			self._extrude(self.tool, old_pos, new_pos)
-		self._movement_command_count += 1
-		for hook in self._hooks:
-			hook.movement(old_pos, new_pos)
+			self._fire_hooks("extrude", self.tool, old_pos, new_pos, extruded_length)
+
+	def comment(self, comment_text):
+		self._fire_hooks("comment", comment_text)
 
 	def command(self, command_text, command_arg):
 		if command_text in [ "G0", "G1" ]:
@@ -169,13 +145,16 @@ class GCodeBaseInterpreter():
 		elif command_text == "M108":
 			# Set tool (left or right extruder)
 			self._tool = int(command_arg["T"])
+			self._fire_hooks("tool_change", self._tool)
 		elif command_text == "M104":
 			# Set nozzle temperature
 			tool = int(command_arg.get("T", 0))
-			self._tool_maxtemp[tool] = max(self._tool_maxtemp[tool], float(command_arg["S"]))
+			temperature = float(command_arg["S"])
+			self._fire_hooks("nozzle_temperature", tool, temperature)
 		elif command_text == "M140":
 			# Set bed temperature
-			self._bed_maxtemp = max(self._bed_maxtemp, float(command_arg["S"]))
+			temperature = float(command_arg["S"])
+			self._fire_hooks("bed_temperature", temperature)
 
 class GCodeParser():
 	_GCODE_RE = re.compile(r"\s*((?P<cmd_code>[A-Z]\d+)(\s+(?P<cmd_args>[^;]+))?)?(\s*;(?P<comment>.*))?")
@@ -201,25 +180,94 @@ class GCodeParser():
 		for line in gcode.split("\n"):
 			self.parse(line)
 
+class PrintingRegion(enum.Enum):
+	Shell = "shell"
+	Infill = "infill"
+	Raft = "raft"
+	Support = "support"
+	Unknown = "unknown"
+
+class GCodeInformationHook(GCodeHook):
+	def __init__(self):
+		super().__init__(self)
+		self._bed_maxtemp = 0
+		self._tool_maxtemp = collections.defaultdict(float)
+		self._total_extruded_length = collections.defaultdict(float)
+		self._movement_command_count = 0
+		self._region = None
+		self._min_z_change = 1
+
+	def comment(self, comment_text):
+		if comment_text in [ "shell", "infill", "raft" ]:
+			self._region = PrintingRegion(comment_text)
+		elif comment_text == "support-start":
+			self._region = PrintingRegion.Support
+		elif comment_text == "support-end":
+			self._region = None
+		elif comment_text.startswith("TYPE:"):
+			support_type = comment_text[5:]
+			self._region = {
+				"FILL":			PrintingRegion.Infill,
+				"SKIN":			PrintingRegion.Shell,
+				"WALL-INNER":	PrintingRegion.Infill,
+				"WALL-OUTER":	PrintingRegion.Shell,
+				"SUPPORT":		PrintingRegion.Support,
+			}.get(support_type, PrintingRegion.Unknown)
+
+	@property
+	def region(self):
+		return self._region
+
+	@property
+	def total_extruded_length(self):
+		return self._total_extruded_length
+
+	@property
+	def bed_max_temp(self):
+		return self._bed_maxtemp
+
+	@property
+	def tool_max_temp(self):
+		return self._tool_maxtemp
+
+	@property
+	def min_z_change(self):
+		return self._min_z_change
+
+	def bed_temperature(self, temp_degc):
+		self._bed_maxtemp = max(self._bed_maxtemp, temp_degc)
+
+	def nozzle_temperature(self, tool, temp_degc):
+		self._tool_maxtemp[tool] = max(self._tool_maxtemp[tool], temp_degc)
+
+	def movement(self, old_pos, new_pos):
+		self._movement_command_count += 1
+		z_change = new_pos["Z"] - old_pos["Z"]
+		if 0 < z_change < 1:
+			self._min_z_change = min(self._min_z_change, z_change)
+
+	def extrude(self, tool, old_pos, new_pos, extruded_length):
+		self._total_extruded_length[tool] += extruded_length
 
 class GCodePOVRayHook(GCodeHook):
-	def __init__(self, povray_renderer):
+	def __init__(self, povray_renderer, info_hook):
 		super().__init__(self)
 		self._renderer = povray_renderer
+		self._info_hook = info_hook
 		self._stats = {
 			"extrude_commands":		0,
-			"wrong_area":			0,
+			"wrong_region":			0,
 		}
 
 	@property
 	def stats(self):
 		return self._stats
 
-	def extrude(self, tool, old_pos, new_pos):
+	def extrude(self, tool, old_pos, new_pos, extruded_length):
 		self._stats["extrude_commands"] += 1
 
-		if self._interpreter.area not in [ "shell", "infill" ]:
-			self._stats["wrong_area"] += 1
+		if self._info_hook.region not in [ PrintingRegion.Shell, PrintingRegion.Infill ]:
+			self._stats["wrong_region"] += 1
 			return
 
 		self._renderer.add_cylinder(old_pos, new_pos)

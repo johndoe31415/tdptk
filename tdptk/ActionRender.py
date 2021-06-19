@@ -24,7 +24,7 @@ import sys
 import json
 from .BaseAction import BaseAction
 from .XGCodeFile import XGCodeFile
-from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodePOVRayHook
+from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeInformationHook, GCodePOVRayHook
 from .POVRayRenderer import POVRayRenderer, POVRayStyle
 from .STLFile import STLFile
 
@@ -53,7 +53,8 @@ class ActionRender(BaseAction):
 
 		povray_renderer = POVRayRenderer(width = self._args.dimensions[0], height = self._args.dimensions[1], oversample_factor = self._args.oversample, style = POVRayStyle(self._args.style), verbosity = self._args.verbose)
 		if filetype in [ "gx", "g" ]:
-			parser = GCodeParser(GCodeBaseInterpreter(hooks = [ GCodePOVRayHook(povray_renderer) ]))
+			info = GCodeInformationHook()
+			parser = GCodeParser(GCodeBaseInterpreter(hooks = [ info, GCodePOVRayHook(povray_renderer, info) ]))
 			parser.parse_all(gcode_data)
 		elif filetype == "stl":
 			for triangle in stl:

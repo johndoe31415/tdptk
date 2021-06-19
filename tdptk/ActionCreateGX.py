@@ -25,7 +25,7 @@ import tempfile
 import subprocess
 from .BaseAction import BaseAction
 from .XGCodeFile import XGCodeFile, XGCodeFlags
-from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodePOVRayHook
+from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeInformationHook, GCodePOVRayHook
 from .POVRayRenderer import POVRayRenderer, POVRayStyle
 
 class ActionCreateGX(BaseAction):
@@ -43,7 +43,9 @@ class ActionCreateGX(BaseAction):
 
 		# Parse G-code to gather metadata about file and fill the POV-Ray renderer with data
 		interpreter = GCodeBaseInterpreter()
-		interpreter.add_hook(GCodePOVRayHook(povray_renderer))
+		info = GCodeInformationHook()
+		interpreter.add_hook(info)
+		interpreter.add_hook(GCodePOVRayHook(povray_renderer, info))
 		parser = GCodeParser(interpreter)
 		parser.parse_all(gcode_data)
 
@@ -53,25 +55,25 @@ class ActionCreateGX(BaseAction):
 			bitmap_data = bmp_outfile.read()
 
 		flags = 0
-		if interpreter.total_extruded_length.get(0, 0) > 0:
+		if info.total_extruded_length.get(0, 0) > 0:
 			flags |= XGCodeFlags.Use_Right_Extruder
-		if interpreter.total_extruded_length.get(1, 0) > 0:
+		if info.total_extruded_length.get(1, 0) > 0:
 			flags |= XGCodeFlags.Use_Left_Extruder
 
 		header_dict = {
 			"print_flags":					flags,
 			"print_time_secs":				60,			# TODO FIXME
 			"print_speed_mm_per_sec":		60,			# TODO FIXME
-			"layer_height_microns":			180,		# TODO FIXME
+			"layer_height_microns":			round(info.min_z_change * 1000),
 			"perimeter_shell_count":		0,
-			"platform_temp_deg_c":			round(interpreter.bed_max_temp),
+			"platform_temp_deg_c":			round(info.bed_max_temp),
 
-			"extruder_temp_right_deg_c":	round(interpreter.tool_max_temp.get(0, 0)),
-			"filament_use_mm_right":		round(interpreter.total_extruded_length.get(0, 0)),
+			"extruder_temp_right_deg_c":	round(info.tool_max_temp.get(0, 0)),
+			"filament_use_mm_right":		round(info.total_extruded_length.get(0, 0)),
 			"material_right":				self._args.material_right,
 
-			"extruder_temp_left_deg_c":		round(interpreter.tool_max_temp.get(1, 0)),
-			"filament_use_mm_left":			round(interpreter.total_extruded_length.get(1, 0)),
+			"extruder_temp_left_deg_c":		round(info.tool_max_temp.get(1, 0)),
+			"filament_use_mm_left":			round(info.total_extruded_length.get(1, 0)),
 			"material_left":				self._args.material_left,
 		}
 		xgcode = XGCodeFile.from_header_dict(header_dict = header_dict, bitmap_data = bitmap_data, gcode_data = gcode_data.encode())

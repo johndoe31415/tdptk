@@ -25,6 +25,7 @@ import tempfile
 import enum
 import json
 import mako.template
+from .CmdlineEscape import CmdlineEscape
 from .GCodeInterpreter import GCodeBaseInterpreter
 
 class POVRayStyle(enum.Enum):
@@ -203,7 +204,7 @@ class POVRayRenderer():
 			pov_file.flush()
 			povray_cmdline = [ "povray" ] + povray_options + [ pov_file.name ]
 			if self._verbosity >= 3:
-				print("Commandline: %s" % (povray_cmdline))
+				print("Command: %s" % (CmdlineEscape().cmdline(povray_cmdline)))
 			subprocess.check_call(povray_cmdline)
 
 			if not trim_image:

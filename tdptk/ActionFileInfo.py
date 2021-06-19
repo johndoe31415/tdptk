@@ -23,7 +23,7 @@ import os
 from .BaseAction import BaseAction
 from .Exceptions import CannotDetermineFiletypeException
 from .XGCodeFile import XGCodeFile, XGCodeFlags
-from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser
+from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeInformationHook
 
 class ActionFileInfo(BaseAction):
 	_EXTENSIONS = {
@@ -33,45 +33,47 @@ class ActionFileInfo(BaseAction):
 
 	def _run_file_gx(self, filename):
 		xgcode = XGCodeFile.read(filename)
-		interpreter = GCodeBaseInterpreter()
+		info = GCodeInformationHook()
+		interpreter = GCodeBaseInterpreter(hooks = [ info ])
 		parser = GCodeParser(interpreter)
 		parser.parse_all(xgcode.gcode_data.decode("ascii"))
 
 		print("Preview image   : %d bytes bitmap" % (len(xgcode.bitmap_data)))
 		print("G-code          : %d bytes machine data" % (len(xgcode.gcode_data)))
 		print("Flags           : %s" % (", ".join(flag.name for flag in xgcode.flags)))
-		print("Layer height    : %d microns" % (xgcode.header.layer_height_microns))
+		print("Layer height    : %d microns (%d microns according to G-code)" % (xgcode.header.layer_height_microns, round(info.min_z_change * 1000)))
 		print("Perimeter shells: %d" % (xgcode.header.perimeter_shell_count))
 		hrs = xgcode.header.print_time_secs // 3600
 		mins = xgcode.header.print_time_secs % 3600 // 60
 		secs = xgcode.header.print_time_secs % 3600 % 60
 		print("Print time      : %d:%02d:%02d h:m:s" % (hrs, mins, secs))
 		print("Print speed     : %d mm/sec" % (xgcode.header.print_speed_mm_per_sec))
-		print("Bed temperature : %d°C (max %d°C according to G-code)" % (xgcode.header.platform_temp_deg_c, interpreter.bed_max_temp))
+		print("Bed temperature : %d°C (max %d°C according to G-code)" % (xgcode.header.platform_temp_deg_c, info.bed_max_temp))
 		if (self._args.verbose >= 2) or (XGCodeFlags.Use_Right_Extruder in xgcode.flags):
 			print()
 			print("Right Extruder:")
 			print("   Material    : %s" % (xgcode.material_right.name))
-			print("   Filament use: %.2fm (%.2fm according to G-code)" % (xgcode.header.filament_use_mm_right / 1000, interpreter.total_extruded_length[0] / 1000))
-			print("   Temperature : %d°C (max %d°C according to G-code)" % (xgcode.header.extruder_temp_right_deg_c, interpreter.tool_max_temp[0]))
+			print("   Filament use: %.2fm (%.2fm according to G-code)" % (xgcode.header.filament_use_mm_right / 1000, info.total_extruded_length[0] / 1000))
+			print("   Temperature : %d°C (max %d°C according to G-code)" % (xgcode.header.extruder_temp_right_deg_c, info.tool_max_temp[0]))
 		if (self._args.verbose >= 2) or (XGCodeFlags.Use_Left_Extruder in xgcode.flags):
 			print()
 			print("Left Extruder:")
 			print("   Material    : %s" % (xgcode.material_left.name))
-			print("   Filament use: %.2fm (%.2fm according to G-code)" % (xgcode.header.filament_use_mm_left / 1000, interpreter.total_extruded_length[1] / 1000))
-			print("   Temperature : %d°C (max %d°C according to G-code)" % (xgcode.header.extruder_temp_left_deg_c, interpreter.tool_max_temp[1]))
+			print("   Filament use: %.2fm (%.2fm according to G-code)" % (xgcode.header.filament_use_mm_left / 1000, info.total_extruded_length[1] / 1000))
+			print("   Temperature : %d°C (max %d°C according to G-code)" % (xgcode.header.extruder_temp_left_deg_c, info.tool_max_temp[1]))
 
 	def _run_file_g(self, filename):
-		interpreter = GCodeBaseInterpreter()
+		info = GCodeInformationHook()
+		interpreter = GCodeBaseInterpreter(hooks = [ info ])
 		parser = GCodeParser(interpreter)
 		with open(filename) as f:
 			parser.parse_all(f.read())
-		print("Bed temperature : %d°C" % (interpreter.bed_max_temp))
-		for (tool, length) in sorted(interpreter.total_extruded_length.items()):
+		print("Bed temperature : %d°C" % (info.bed_max_temp))
+		for (tool, length) in sorted(info.total_extruded_length.items()):
 			print()
 			print("Extruder #%d" % (tool + 1))
-			print("   Filament use: %.2fm" % (interpreter.total_extruded_length[tool] / 1000))
-			print("   Temperature : %d°C" % (interpreter.tool_max_temp[tool]))
+			print("   Filament use: %.2fm" % (info.total_extruded_length[tool] / 1000))
+			print("   Temperature : %d°C" % (info.tool_max_temp[tool]))
 
 	def _run_file(self, filename):
 		if self._args.filetype == "auto":
