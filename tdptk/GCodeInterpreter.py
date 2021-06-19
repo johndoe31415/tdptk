@@ -79,6 +79,9 @@ class GCodeHook():
 	def nozzle_temperature(self, tool, temp_degc):
 		pass
 
+	def command(self, command_text, command_args):
+		pass
+
 	def comment(self, comment):
 		pass
 
@@ -128,6 +131,7 @@ class GCodeBaseInterpreter():
 		self._fire_hooks("comment", comment_text)
 
 	def command(self, command_text, command_arg):
+		self._fire_hooks("command", command_text, command_arg)
 		if command_text in [ "G0", "G1" ]:
 			new_pos = dict(self.pos)
 			for (axis, pos) in command_arg.float_dict.items():
