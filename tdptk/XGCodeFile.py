@@ -56,8 +56,6 @@ class XGCodeMaterials(enum.IntEnum):
 	PETG_CF = 14
 	PLA_CF = 15
 
-	Conductive_PLA = 997		# TODO FIXME
-
 XGCodeHeader = NamedStruct((
 	("16s",		"version"),							# 0x00: static string
 	("L",		"offset_bitmap"),					# 0x10:

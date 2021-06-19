@@ -25,7 +25,7 @@ import tempfile
 import subprocess
 from .BaseAction import BaseAction
 from .XGCodeFile import XGCodeFile, XGCodeFlags
-from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeInformationHook, GCodePOVRayHook
+from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeInformationHook, GCodePOVRayHook, GCodeSpeedHook
 from .POVRayRenderer import POVRayRenderer, POVRayStyle
 
 class ActionCreateGX(BaseAction):
@@ -44,7 +44,9 @@ class ActionCreateGX(BaseAction):
 		# Parse G-code to gather metadata about file and fill the POV-Ray renderer with data
 		interpreter = GCodeBaseInterpreter()
 		info = GCodeInformationHook()
+		speed = GCodeSpeedHook()
 		interpreter.add_hook(info)
+		interpreter.add_hook(speed)
 		interpreter.add_hook(GCodePOVRayHook(povray_renderer, info))
 		parser = GCodeParser(interpreter)
 		parser.parse_all(gcode_data)
@@ -62,9 +64,9 @@ class ActionCreateGX(BaseAction):
 
 		header_dict = {
 			"print_flags":					flags,
-			"print_time_secs":				60,			# TODO FIXME
-			"print_speed_mm_per_sec":		60,			# TODO FIXME
-			"layer_height_microns":			round(info.min_z_change * 1000),
+			"print_time_secs":				round(speed.print_time_secs),
+			"print_speed_mm_per_sec":		round(speed.max_feedrate_mm_per_sec),
+			"layer_height_microns":			round(info.median_z_change * 1000),
 			"perimeter_shell_count":		0,
 			"platform_temp_deg_c":			round(info.bed_max_temp),
 

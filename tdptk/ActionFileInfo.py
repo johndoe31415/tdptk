@@ -23,7 +23,7 @@ import os
 from .BaseAction import BaseAction
 from .Exceptions import CannotDetermineFiletypeException
 from .XGCodeFile import XGCodeFile, XGCodeFlags
-from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeInformationHook
+from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeInformationHook, GCodeSpeedHook
 
 class ActionFileInfo(BaseAction):
 	_EXTENSIONS = {
@@ -34,20 +34,21 @@ class ActionFileInfo(BaseAction):
 	def _run_file_gx(self, filename):
 		xgcode = XGCodeFile.read(filename)
 		info = GCodeInformationHook()
-		interpreter = GCodeBaseInterpreter(hooks = [ info ])
+		speed = GCodeSpeedHook()
+		interpreter = GCodeBaseInterpreter(hooks = [ info, speed ])
 		parser = GCodeParser(interpreter)
 		parser.parse_all(xgcode.gcode_data.decode("ascii"))
 
 		print("Preview image   : %d bytes bitmap" % (len(xgcode.bitmap_data)))
 		print("G-code          : %d bytes machine data" % (len(xgcode.gcode_data)))
 		print("Flags           : %s" % (", ".join(flag.name for flag in xgcode.flags)))
-		print("Layer height    : %d microns (%d microns according to G-code)" % (xgcode.header.layer_height_microns, round(info.min_z_change * 1000)))
+		print("Layer height    : %d microns (%d microns according to G-code)" % (xgcode.header.layer_height_microns, round(info.median_z_change * 1000)))
 		print("Perimeter shells: %d" % (xgcode.header.perimeter_shell_count))
 		hrs = xgcode.header.print_time_secs // 3600
 		mins = xgcode.header.print_time_secs % 3600 // 60
 		secs = xgcode.header.print_time_secs % 3600 % 60
-		print("Print time      : %d:%02d:%02d h:m:s" % (hrs, mins, secs))
-		print("Print speed     : %d mm/sec" % (xgcode.header.print_speed_mm_per_sec))
+		print("Print time      : %d:%02d:%02d h:m:s (estimated %s h:m:s from G-code)" % (hrs, mins, secs, speed.print_time_hms))
+		print("Print speed     : %d mm/sec (%d mm/sec from G-code)" % (xgcode.header.print_speed_mm_per_sec, round(speed.max_feedrate_mm_per_sec)))
 		print("Bed temperature : %d°C (max %d°C according to G-code)" % (xgcode.header.platform_temp_deg_c, info.bed_max_temp))
 		if (self._args.verbose >= 2) or (XGCodeFlags.Use_Right_Extruder in xgcode.flags):
 			print()
@@ -64,11 +65,14 @@ class ActionFileInfo(BaseAction):
 
 	def _run_file_g(self, filename):
 		info = GCodeInformationHook()
-		interpreter = GCodeBaseInterpreter(hooks = [ info ])
+		speed = GCodeSpeedHook()
+		interpreter = GCodeBaseInterpreter(hooks = [ info, speed ])
 		parser = GCodeParser(interpreter)
 		with open(filename) as f:
 			parser.parse_all(f.read())
 		print("Bed temperature : %d°C" % (info.bed_max_temp))
+		print("Print time      : %s h:m:s" % (speed.print_time_hms))
+		print("Print speed     : %d mm/sec" % (round(speed.max_feedrate_mm_per_sec)))
 		for (tool, length) in sorted(info.total_extruded_length.items()):
 			print()
 			print("Extruder #%d" % (tool + 1))

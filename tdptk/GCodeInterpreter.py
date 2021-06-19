@@ -21,6 +21,8 @@
 
 import re
 import enum
+import math
+import numpy
 import collections
 from .Exceptions import MalformedGcodeException
 
@@ -62,10 +64,10 @@ class GCodeHook():
 	def claim(self, interpreter):
 		self._interpreter = interpreter
 
-	def extrude(self, tool, old_pos, new_pos, extruded_length):
+	def extrude(self, tool, old_pos, new_pos, extruded_length, max_feedrate):
 		pass
 
-	def movement(self, old_pos, new_pos):
+	def movement(self, old_pos, new_pos, max_feedrate):
 		pass
 
 	def tool_change(self, tool):
@@ -117,9 +119,10 @@ class GCodeBaseInterpreter():
 
 	def _movement(self, old_pos, new_pos):
 		extruded_length = new_pos["E"] - old_pos["E"]
-		self._fire_hooks("movement", old_pos, new_pos)
+		max_feedrate = new_pos["F"]
+		self._fire_hooks("movement", old_pos, new_pos, max_feedrate)
 		if extruded_length > 0:
-			self._fire_hooks("extrude", self.tool, old_pos, new_pos, extruded_length)
+			self._fire_hooks("extrude", self.tool, old_pos, new_pos, extruded_length, max_feedrate)
 
 	def comment(self, comment_text):
 		self._fire_hooks("comment", comment_text)
@@ -195,7 +198,7 @@ class GCodeInformationHook(GCodeHook):
 		self._total_extruded_length = collections.defaultdict(float)
 		self._movement_command_count = 0
 		self._region = None
-		self._min_z_change = 1
+		self._z_changes = [ ]
 
 	def comment(self, comment_text):
 		if comment_text in [ "shell", "infill", "raft" ]:
@@ -231,8 +234,8 @@ class GCodeInformationHook(GCodeHook):
 		return self._tool_maxtemp
 
 	@property
-	def min_z_change(self):
-		return self._min_z_change
+	def median_z_change(self):
+		return float(numpy.median(self._z_changes))
 
 	def bed_temperature(self, temp_degc):
 		self._bed_maxtemp = max(self._bed_maxtemp, temp_degc)
@@ -240,13 +243,13 @@ class GCodeInformationHook(GCodeHook):
 	def nozzle_temperature(self, tool, temp_degc):
 		self._tool_maxtemp[tool] = max(self._tool_maxtemp[tool], temp_degc)
 
-	def movement(self, old_pos, new_pos):
+	def movement(self, old_pos, new_pos, max_feedrate):
 		self._movement_command_count += 1
 		z_change = new_pos["Z"] - old_pos["Z"]
 		if 0 < z_change < 1:
-			self._min_z_change = min(self._min_z_change, z_change)
+			self._z_changes.append(z_change)
 
-	def extrude(self, tool, old_pos, new_pos, extruded_length):
+	def extrude(self, tool, old_pos, new_pos, extruded_length, max_feedrate):
 		self._total_extruded_length[tool] += extruded_length
 
 class GCodePOVRayHook(GCodeHook):
@@ -263,7 +266,7 @@ class GCodePOVRayHook(GCodeHook):
 	def stats(self):
 		return self._stats
 
-	def extrude(self, tool, old_pos, new_pos, extruded_length):
+	def extrude(self, tool, old_pos, new_pos, extruded_length, max_feedrate):
 		self._stats["extrude_commands"] += 1
 
 		if self._info_hook.region not in [ PrintingRegion.Shell, PrintingRegion.Infill ]:
@@ -271,3 +274,41 @@ class GCodePOVRayHook(GCodeHook):
 			return
 
 		self._renderer.add_cylinder(old_pos, new_pos)
+
+class GCodeSpeedHook(GCodeHook):
+	def __init__(self):
+		super().__init__(self)
+		self._max_feedrate_mm_per_sec = 0
+		self._print_time_secs = 0
+		self._min_command_execution_time_secs = 0.07
+
+	@property
+	def max_feedrate_mm_per_sec(self):
+		return self._max_feedrate_mm_per_sec
+
+	@property
+	def print_time_secs(self):
+		return self._print_time_secs
+
+	@property
+	def print_time_hms(self):
+		secs = round(self.print_time_secs)
+		return "%d:%02d:%02d" % (secs // 3600, secs % 3600 // 60, secs % 3600 % 60)
+
+	def _calc_max_distance(self, old_pos, new_pos):
+		distance_xy_plane = math.sqrt((new_pos["X"] - old_pos["X"]) ** 2 + (new_pos["Y"] - old_pos["Y"]) ** 2)
+		distance_yz_plane = math.sqrt((new_pos["Y"] - old_pos["Y"]) ** 2 + (new_pos["Z"] - old_pos["Z"]) ** 2)
+		distance_xy_plane = math.sqrt((new_pos["X"] - old_pos["X"]) ** 2 + (new_pos["Z"] - old_pos["Z"]) ** 2)
+		max_distance = max(distance_xy_plane, distance_yz_plane, distance_xy_plane)
+		return max_distance
+
+	def movement(self, old_pos, new_pos, max_feedrate):
+		max_distance_mm = self._calc_max_distance(old_pos, new_pos)
+		velocity_mm_per_sec = max_feedrate / 60
+		time_secs = max_distance_mm / velocity_mm_per_sec
+		time_secs = max(time_secs, self._min_command_execution_time_secs)
+		self._print_time_secs += time_secs
+
+	def extrude(self, tool, old_pos, new_pos, extruded_length, max_feedrate):
+		velocity_mm_per_sec = max_feedrate / 60
+		self._max_feedrate_mm_per_sec = max(self._max_feedrate_mm_per_sec, velocity_mm_per_sec)
