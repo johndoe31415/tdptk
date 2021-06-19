@@ -43,11 +43,11 @@ _TEMPLATE = mako.template.Template("""\
 
 global_settings {
 	assumed_gamma 1.0
-	/*
+%if use_photons:
 	photons {
 		count 1000
 	}
-	*/
+%endif
 }
 
 %if style == "BlackWhite":
@@ -70,18 +70,17 @@ camera {
 light_source { <1000, 1000, 1000> color White }
 %elif style == "Color":
 light_source {
-	<1000, 1000, 1000>
-	color White
-	spotlight
-	radius 20
+	<15, 7, 15>	color White	spotlight
+	radius 1
 	jitter
 	point_at <0, 0, 0>
-/*
+	area_light 3*x, 3*z, 4, 4
+%if use_photons:
 	photons {
 		refraction on
 		reflection on
 	}
-*/
+%endif
 }
 %else:
 ${error("Unknown color style '%s'" % (style))}
@@ -101,23 +100,30 @@ ${error("Unknown color style '%s'" % (style))}
 		pigment { color rgb<0.5, 0.5, 0.5> }
 		finish { phong 0.5 }
 %elif style == "Color":
-		pigment { color rgb<0.753, 0.224, 0.169> }
+		pigment { color rgb<0.853, 0.124, 0.109> }
+		normal {
+			bumps 0.1
+			scale 0.1
+		}
 		finish {
-			phong 0.75
-			specular 0.2
+			phong 0.7
+			phong_size 40
+			specular 0.8
+			roughness 0.15
+			diffuse 0.75
 		}
 %else:
 ${error("Unknown color style '%s'" % (style))}
 %endif
 	}
-/*
+%if use_photons:
 	photons {
 		target
 		refraction on
 		reflection on
 		collect off
 	}
-*/
+%endif
 }
 
 #declare scaling_factor = ${scaling_factor};
@@ -162,9 +168,17 @@ class POVRayRenderer():
 		def error_fnc(text):
 			raise Exception(text)
 		if self._verbosity >= 1:
-			print("%d cylinders (diameter %.2fmm) and %d triangles to render." % (len(self._cylinders), len(self._triangles), self._cylinder_diameter))
-		scaling_factor = 7
-		return _TEMPLATE.render(cylinders = self._cylinders, triangles = self._triangles, scaling_factor = scaling_factor, cylinder_diameter = self._cylinder_diameter, style = self._style.name, error = error_fnc)
+			print("%d cylinders (diameter %.2fmm) and %d triangles to render." % (len(self._cylinders), self._cylinder_diameter, len(self._triangles)))
+		args = {
+			"scaling_factor":		7,
+			"cylinders":			self._cylinders,
+			"triangles":			self._triangles,
+			"cylinder_diameter":	self._cylinder_diameter,
+			"style":				self._style.name,
+			"error":				error_fnc,
+			"use_photons":			False,
+		}
+		return _TEMPLATE.render(**args)
 
 	def render_image(self, image_filename, additional_povray_options = None, show_image = False, trim_image = False):
 		bg_color = {
