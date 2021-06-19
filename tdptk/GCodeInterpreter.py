@@ -26,36 +26,92 @@ import numpy
 import collections
 from .Exceptions import MalformedGcodeException
 
-class GCodeCommandArguments():
-	def __init__(self, arg_string):
-		self._arg_string = arg_string
-		self._dict = None
-		self._float_dict = None
+class GCodes(enum.Enum):
+	RapidMovement = "G0"
+	ControlledMovement = "G1"
+	UseAbsolutePositioning = "G90"
+	UseRelativePositioning = "G91"
+	SetPositionToValue = "G92"
+	SetActiveExtruder = "M108"
+	SetExtruderNozzleTemperature = "M104"
+	SetBedTemperature = "M140"
 
+class GCodeCommand():
+	def __init__(self, cmd_string, arg_string, comment, gcode_class = GCodes):
+		try:
+			self._cmd = gcode_class(cmd_string)
+		except ValueError:
+			self._cmd = None
+		self._cmd_string = cmd_string
+		self._arg_string = arg_string
+		self._comment = comment
+		self._dict = self._parse_args(self._arg_string)
+
+	@property
+	def have_command(self):
+		return self._cmd_string is not None
+
+	@property
+	def have_args(self):
+		return self._arg_string is not None
+
+	@property
+	def have_comment(self):
+		return self._comment is not None
+
+	@property
+	def cmd(self):
+		return self._cmd
+
+	@property
+	def cmd_str(self):
+		return self._cmd_string
+
+	@property
 	def arg_str(self):
 		return self._arg_string
 
 	@property
-	def as_dict(self):
-		if self._dict is None:
-			self._dict = { }
-			for item in self._arg_string.split():
+	def comment(self):
+		return self._comment
+
+	@staticmethod
+	def _parse_args(arg_string):
+		arg_dict = collections.OrderedDict()
+		if arg_string is not None:
+			for item in arg_string.split():
 				key = item[0]
 				value = item[1:]
-				self._dict[key] = value
-		return self._dict
+				arg_dict[key] = value
+		return arg_dict
 
 	@property
 	def float_dict(self):
-		if self._float_dict is None:
-			self._float_dict = { key: float(value) for (key, value) in self.as_dict.items() }
-		return self._float_dict
+		return { key: float(value) for (key, value) in self._dict.items() }
 
 	def get(self, key, default_value = None):
-		return self.as_dict.get(key, default_value)
+		return self._dict.get(key, default_value)
+
+	def has_arg(self, key):
+		return key in self._dict
+
+	def remove_arg(self, key):
+		del self._dict[key]
 
 	def __getitem__(self, key):
-		return self.as_dict[key]
+		return self._dict[key]
+
+	def __str__(self):
+		text = ""
+		if self.have_command:
+			text += self._cmd_string
+			if self.have_args:
+				text += " " + (" ".join("%s%s" % (key, value) for (key, value) in self._dict.items()))
+		if self.have_comment:
+			if text != "":
+				text += " "
+			text += ";%s" % (self._comment)
+		return text
 
 class GCodeHook():
 	def __init__(self, interpreter = None):
@@ -79,10 +135,7 @@ class GCodeHook():
 	def nozzle_temperature(self, tool, temp_degc):
 		pass
 
-	def command(self, command_text, command_args):
-		pass
-
-	def comment(self, comment):
+	def command(self, command):
 		pass
 
 class GCodeBaseInterpreter():
@@ -127,40 +180,34 @@ class GCodeBaseInterpreter():
 		if extruded_length > 0:
 			self._fire_hooks("extrude", self.tool, old_pos, new_pos, extruded_length, max_feedrate)
 
-	def comment(self, comment_text):
-		self._fire_hooks("comment", comment_text)
-
-	def command(self, command_text, command_arg):
-		self._fire_hooks("command", command_text, command_arg)
-		if command_text in [ "G0", "G1" ]:
+	def command(self, command):
+		self._fire_hooks("command", command)
+		if command.cmd in [ GCodes.RapidMovement, GCodes.ControlledMovement ]:
 			new_pos = dict(self.pos)
-			for (axis, pos) in command_arg.float_dict.items():
+			for (axis, pos) in command.float_dict.items():
 				if self._pos_absolute:
 					new_pos[axis] = pos
 				else:
 					new_pos[axis] += pos
 			self._movement(self.pos, new_pos)
 			self.pos = new_pos
-		elif command_text == "G90":
+		elif command.cmd == GCodes.UseAbsolutePositioning:
 			self._pos_absolute = True
-		elif command_text == "G91":
+		elif command.cmd == GCodes.UseRelativePositioning:
 			self._pos_absolute = False
-		elif command_text == "G92":
+		elif command.cmd == GCodes.SetPositionToValue:
 			# Set position
-			for (axis, pos) in command_arg.float_dict.items():
+			for (axis, pos) in command.float_dict.items():
 				self.pos[axis] = pos
-		elif command_text == "M108":
-			# Set tool (left or right extruder)
-			self._tool = int(command_arg["T"])
+		elif command.cmd == GCodes.SetActiveExtruder:
+			self._tool = int(command["T"])
 			self._fire_hooks("tool_change", self._tool)
-		elif command_text == "M104":
-			# Set nozzle temperature
-			tool = int(command_arg.get("T", 0))
-			temperature = float(command_arg["S"])
+		elif command.cmd == GCodes.SetExtruderNozzleTemperature:
+			tool = int(command.get("T", 0))
+			temperature = float(command["S"])
 			self._fire_hooks("nozzle_temperature", tool, temperature)
-		elif command_text == "M140":
-			# Set bed temperature
-			temperature = float(command_arg["S"])
+		elif command.cmd == GCodes.SetBedTemperature:
+			temperature = float(command["S"])
 			self._fire_hooks("bed_temperature", temperature)
 
 class GCodeParser():
@@ -174,14 +221,8 @@ class GCodeParser():
 		if match is None:
 			raise MalformedGcodeException("Do not understand G-code: '%s'" % (cmd))
 		match = match.groupdict()
-		if match["cmd_code"] is not None:
-			if match["cmd_args"] is None:
-				args = None
-			else:
-				args = GCodeCommandArguments(match["cmd_args"])
-			self._interpreter.command(match["cmd_code"], args)
-		if match["comment"] is not None:
-			self._interpreter.comment(match["comment"])
+		cmd = GCodeCommand(match["cmd_code"], match["cmd_args"], match["comment"])
+		self._interpreter.command(cmd)
 
 	def parse_all(self, gcode):
 		for line in gcode.split("\n"):
@@ -204,15 +245,18 @@ class GCodeInformationHook(GCodeHook):
 		self._region = None
 		self._z_changes = [ ]
 
-	def comment(self, comment_text):
-		if comment_text in [ "shell", "infill", "raft" ]:
-			self._region = PrintingRegion(comment_text)
-		elif comment_text == "support-start":
+	def command(self, command):
+		if command.comment is None:
+			return
+
+		if command.comment in [ "shell", "infill", "raft" ]:
+			self._region = PrintingRegion(command.comment)
+		elif command.comment == "support-start":
 			self._region = PrintingRegion.Support
-		elif comment_text == "support-end":
+		elif command.comment == "support-end":
 			self._region = None
-		elif comment_text.startswith("TYPE:"):
-			support_type = comment_text[5:]
+		elif command.comment.startswith("TYPE:"):
+			support_type = command.comment[5:]
 			self._region = {
 				"FILL":			PrintingRegion.Infill,
 				"SKIN":			PrintingRegion.Shell,
@@ -319,3 +363,38 @@ class GCodeSpeedHook(GCodeHook):
 	def extrude(self, tool, old_pos, new_pos, extruded_length, max_feedrate):
 		velocity_mm_per_sec = max_feedrate / 60
 		self._max_feedrate_mm_per_sec = max(self._max_feedrate_mm_per_sec, velocity_mm_per_sec)
+
+class GCodeManipulationHook(GCodeHook):
+	def __init__(self):
+		super().__init__()
+		self._commands = [ ]
+
+	def serialize(self):
+		return "\n".join(str(cmd) for cmd in self._commands) + "\n"
+
+class GCodeManipulationRemoveExtrusionHook(GCodeManipulationHook):
+	def command(self, command):
+		if command.cmd in [ GCodes.SetExtruderNozzleTemperature, GCodes.SetBedTemperature ]:
+			# Ignore these ones completely
+			return
+		elif command.cmd in [ GCodes.RapidMovement, GCodes.ControlledMovement ]:
+			if command.has_arg("E"):
+				command.remove_arg("E")
+		self._commands.append(command)
+
+class GCodeManipulationInsertProgressHook(GCodeManipulationHook):
+	def __init__(self, speed_hook, total_printing_time):
+		super().__init__()
+		self._speed_hook = speed_hook
+		self._total_printing_time = total_printing_time
+		self._current_progress = 0
+
+	def command(self, command):
+		if command.comment == "percent":
+			return
+
+		current_printing_progress_percent = round(100 * self._speed_hook.print_time_secs / self._total_printing_time)
+		for i in range(current_printing_progress_percent - self._current_progress):
+			self._commands.append(GCodeCommand(cmd_string = None, arg_string = None, comment = "percent"))
+		self._current_progress = current_printing_progress_percent
+		self._commands.append(command)

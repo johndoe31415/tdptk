@@ -29,6 +29,7 @@ from .ActionSplitGX import ActionSplitGX
 from .ActionCreateGX import ActionCreateGX
 from .ActionPrint import ActionPrint
 from .ActionRender import ActionRender
+from .ActionManipulate import ActionManipulate
 from .XGCodeFile import XGCodeMaterials
 
 def _dimensions(text):
@@ -106,5 +107,14 @@ def main():
 		parser.add_argument("input_filename", help = "GCode or GXCode input file")
 		parser.add_argument("output_filename", help = "Output file to write; automatically determines file type based on extension. When .pov is specified, renders the POV-Ray source")
 	mc.register("render", "Do a 3d rendering of GCode using POV-Ray", genparser, action = ActionRender)
+
+	def genparser(parser):
+		parser.add_argument("--remove-extrusion", action = "store_true", help = "Remove all extrusion and heating code.")
+		parser.add_argument("--insert-progress-comment", action = "store_true", help = "Insert FlashForge progress comments.")
+		parser.add_argument("-f", "--force", action = "store_true", help = "Overwrite output file even if it already exists.")
+		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
+		parser.add_argument("input_filename", help = "GCode input file")
+		parser.add_argument("output_filename", help = "GCode output file")
+	mc.register("manipulate", "Manipulate G-Code, e.g., by removing all extrusion/heating commands", genparser, action = ActionManipulate)
 
 	mc.run(sys.argv[1:])
