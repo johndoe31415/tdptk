@@ -235,7 +235,10 @@ class GCodeInformationHook(GCodeHook):
 
 	@property
 	def median_z_change(self):
-		return float(numpy.median(self._z_changes))
+		if len(self._z_changes) == 0:
+			return 0
+		else:
+			return float(numpy.median(self._z_changes))
 
 	def bed_temperature(self, temp_degc):
 		self._bed_maxtemp = max(self._bed_maxtemp, temp_degc)
