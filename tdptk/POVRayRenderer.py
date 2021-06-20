@@ -169,7 +169,7 @@ class POVRayRenderer():
 		if self._verbosity >= 1:
 			print("%d cylinders (diameter %.2fmm) and %d triangles to render." % (len(self._cylinders), self._cylinder_diameter, len(self._triangles)))
 		args = {
-			"scaling_factor":		7,
+			"scaling_factor":		5.5,
 			"cylinders":			self._cylinders,
 			"triangles":			self._triangles,
 			"cylinder_diameter":	self._cylinder_diameter,
