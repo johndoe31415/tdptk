@@ -32,9 +32,14 @@ class GCodes(enum.Enum):
 	UseAbsolutePositioning = "G90"
 	UseRelativePositioning = "G91"
 	SetPositionToValue = "G92"
+	Dwell = "G4"
+	MoveHomePosition = "G28"
+
+	GetCurrentPosition = "M114"
 	SetActiveExtruder = "M108"
 	SetExtruderNozzleTemperature = "M104"
 	SetBedTemperature = "M140"
+	EmergencyStop = "M112"
 
 class GCodeCommand():
 	def __init__(self, cmd_string, arg_string, comment, gcode_class = GCodes):

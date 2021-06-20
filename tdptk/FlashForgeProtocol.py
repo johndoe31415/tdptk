@@ -185,6 +185,15 @@ class FlashForgeProtocol():
 	def start_print_file(self, filename):
 		self.tx_rx("M23 0:/user/%s" % (filename))
 
+	def resume_print(self):
+		self.tx_rx("M24")
+
+	def pause_print(self):
+		self.tx_rx("M25")
+
+	def cancel_print(self):
+		self.tx_rx("M26")
+
 	def __enter__(self):
 		self.start_communication()
 		return self

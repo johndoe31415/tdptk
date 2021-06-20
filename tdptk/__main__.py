@@ -24,6 +24,7 @@ from .MultiCommand import MultiCommand
 from .ActionFileInfo import ActionFileInfo
 from .ActionPrinterStatus import ActionPrinterStatus
 from .ActionGerberCommand import ActionGerberCommand
+from .ActionPrinterCommand import ActionPrinterCommand
 from .ActionMergeGX import ActionMergeGX
 from .ActionSplitGX import ActionSplitGX
 from .ActionCreateGX import ActionCreateGX
@@ -58,7 +59,14 @@ def main():
 		parser.add_argument("-u", "--uri", metavar = "uri", required = True, help = "Printer to connect to, using a scheme such as ff://myprinter for the FlashForge protocol")
 		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
 		parser.add_argument("commands", nargs = "+", help = "Gerber command(s) to execute")
-	mc.register("cmd", "Directly execute a Gerber command", genparser, action = ActionGerberCommand)
+	mc.register("gerber", "Directly execute a Gerber command", genparser, action = ActionGerberCommand)
+
+	def genparser(parser):
+		parser.add_argument("-t", "--timeout", metavar = "secs", type = float, default = 1.0, help = "Command timeout in seconds, defaults to %(default).1f sec")
+		parser.add_argument("-u", "--uri", metavar = "uri", required = True, help = "Printer to connect to, using a scheme such as ff://myprinter for the FlashForge protocol")
+		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
+		parser.add_argument("commands", choices = [ "cancel", "resume", "info" ], nargs = "+", help = "Command(s) to execute. Can be one of %(choices)s.")
+	mc.register("command", "Execute a printer command such as stopping the print or querying information", genparser, action = ActionPrinterCommand, aliases = [ "cmd" ])
 
 	def genparser(parser):
 		parser.add_argument("-f", "--force", action = "store_true", help = "Overwrite output files even if they already exists.")
