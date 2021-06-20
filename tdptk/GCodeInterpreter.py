@@ -22,8 +22,8 @@
 import re
 import enum
 import math
-import numpy
 import collections
+import numpy
 from .Exceptions import MalformedGcodeException
 
 class GCodes(enum.Enum):

@@ -21,8 +21,6 @@
 
 import os
 import sys
-import tempfile
-import subprocess
 from .BaseAction import BaseAction
 from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeSpeedHook, GCodeManipulationRemoveExtrusionHook, GCodeManipulationInsertProgressHook
 

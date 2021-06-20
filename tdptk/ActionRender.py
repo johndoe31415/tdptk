@@ -21,7 +21,6 @@
 
 import os
 import sys
-import json
 from .BaseAction import BaseAction
 from .XGCodeFile import XGCodeFile
 from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeInformationHook, GCodePOVRayHook

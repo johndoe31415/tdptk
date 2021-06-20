@@ -19,12 +19,11 @@
 #
 #	Johannes Bauer <JohannesBauer@gmx.de>
 
-import time
 import re
 import socket
 import collections
 import zlib
-from .MultiRegex import MultiRegex, NoRegexMatchedException
+from .MultiRegex import MultiRegex
 from .ReceiveBuffer import ReceiveBuffer
 from .Exceptions import PrinterCommunicationException
 from .NamedStruct import NamedStruct
@@ -59,10 +58,10 @@ class GCodeChunk():
 class FlashForgeProtocol():
 	_MachineInformation = collections.namedtuple("MachineInformation", [ "machine_type", "machine_name", "firmware", "serial_number", "dimension_x", "dimension_y", "dimension_z", "tool_count", "mac_address" ])
 	_M115Regex = MultiRegex(collections.OrderedDict((
-		("m115_xyz", re.compile("X: (?P<x>\d+) Y: (?P<y>\d+) Z: (?P<z>\d+)")),
-		("m115_int", re.compile("(?P<key>Tool Count): (?P<value>\d+)")),
-		("m115_string", re.compile("(?P<key>[^:]+): (?P<value>.*)")),
-		("m115_unknown", re.compile(".*")),
+		("m115_xyz", re.compile(r"X: (?P<x>\d+) Y: (?P<y>\d+) Z: (?P<z>\d+)")),
+		("m115_int", re.compile(r"(?P<key>Tool Count): (?P<value>\d+)")),
+		("m115_string", re.compile(r"(?P<key>[^:]+): (?P<value>.*)")),
+		("m115_unknown", re.compile(r".*")),
 	)))
 
 	def __init__(self, conn, default_timeout = 1.0):

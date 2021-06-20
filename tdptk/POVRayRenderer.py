@@ -26,7 +26,6 @@ import enum
 import json
 import mako.template
 from .CmdlineEscape import CmdlineEscape
-from .GCodeInterpreter import GCodeBaseInterpreter
 
 class POVRayStyle(enum.Enum):
 	BlackWhite = "bw"
