@@ -20,6 +20,8 @@
 #	Johannes Bauer <JohannesBauer@gmx.de>
 
 import os
+import sys
+import json
 from .BaseAction import BaseAction
 from .Exceptions import CannotDetermineFiletypeException
 from .XGCodeFile import XGCodeFile, XGCodeFlags
@@ -31,12 +33,31 @@ class ActionFileInfo(BaseAction):
 		".g":		"g",
 	}
 
-	def _run_file_gx(self, filename):
-		xgcode = XGCodeFile.read(filename)
+	def _create_parser(self):
+		if self._args.model_parameters is None:
+			model_parameters = None
+		else:
+			with open(self._args.model_parameters) as f:
+				model_parameters = json.load(f)
 		info = GCodeInformationHook()
-		speed = GCodeSpeedHook()
+		speed = GCodeSpeedHook(model_parameters = model_parameters, log_execution_time = (self._args.output_speedplot is not None))
 		interpreter = GCodeBaseInterpreter(hooks = [ info, speed ])
 		parser = GCodeParser(interpreter)
+		return (info, speed, parser)
+
+	def _write_speedplot(self, speed):
+		if self._args.output_speedplot is None:
+			return
+		json_data = { "x": [ ], "y": [ ] }
+		for (x, y) in speed.execution_times:
+			json_data["x"].append(x)
+			json_data["y"].append(y)
+		with open(self._args.output_speedplot, "w") as f:
+			json.dump(json_data, f)
+
+	def _run_file_gx(self, filename):
+		xgcode = XGCodeFile.read(filename)
+		(info, speed, parser) = self._create_parser()
 		parser.parse_all(xgcode.gcode_data.decode("ascii"))
 
 		print("Preview image   : %d bytes bitmap" % (len(xgcode.bitmap_data)))
@@ -62,12 +83,10 @@ class ActionFileInfo(BaseAction):
 			print("   Material    : %s" % (xgcode.material_left.name))
 			print("   Filament use: %.2fm (%.2fm according to G-code)" % (xgcode.header.filament_use_mm_left / 1000, info.total_extruded_length[1] / 1000))
 			print("   Temperature : %d°C (max %d°C according to G-code)" % (xgcode.header.extruder_temp_left_deg_c, info.tool_max_temp[1]))
+		self._write_speedplot(speed)
 
 	def _run_file_g(self, filename):
-		info = GCodeInformationHook()
-		speed = GCodeSpeedHook()
-		interpreter = GCodeBaseInterpreter(hooks = [ info, speed ])
-		parser = GCodeParser(interpreter)
+		(info, speed, parser) = self._create_parser()
 		with open(filename) as f:
 			parser.parse_all(f.read())
 		print("Bed temperature : %d°C" % (info.bed_max_temp))
@@ -78,6 +97,7 @@ class ActionFileInfo(BaseAction):
 			print("Extruder #%d" % (tool + 1))
 			print("   Filament use: %.2fm" % (info.total_extruded_length[tool] / 1000))
 			print("   Temperature : %d°C" % (info.tool_max_temp[tool]))
+		self._write_speedplot(speed)
 
 	def _run_file(self, filename):
 		if self._args.filetype == "auto":
@@ -95,6 +115,11 @@ class ActionFileInfo(BaseAction):
 		method(filename)
 
 	def run(self):
+		if not self._args.force:
+			if os.path.exists(self._args.output_speedplot):
+				print("Refusing to overwrite: %s" % (self._args.output_speedplot))
+				sys.exit(1)
+
 		for filename in self._args.filename:
 			print(filename)
 			self._run_file(filename)

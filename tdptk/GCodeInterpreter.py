@@ -339,12 +339,27 @@ class GCodePOVRayHook(GCodeHook):
 		self._renderer.add_cylinder(old_pos, new_pos)
 
 class GCodeSpeedHook(GCodeHook):
-	def __init__(self):
+	_DEFAULT_MACHINE_PARAMETERS = {
+		"min_command_execution_time_secs": 0.04,
+	}
+
+	def __init__(self, model_parameters = None, log_execution_time = False):
 		super().__init__(self)
 		self._max_feedrate_mm_per_sec = 0
 		self._print_time_secs = 0
-		self._min_command_execution_time_secs = 0.04
+		if model_parameters is None:
+			self._model_parameters = self._DEFAULT_MACHINE_PARAMETERS
+		else:
+			self._model_parameters = model_parameters
+		if log_execution_time:
+			self._execution_times = [ ]
+		else:
+			self._execution_times = None
 		self._command_count = 0
+
+	@property
+	def execution_times(self):
+		return self._execution_times
 
 	@property
 	def max_feedrate_mm_per_sec(self):
@@ -388,10 +403,10 @@ class GCodeSpeedHook(GCodeHook):
 
 		velocity_mm_per_sec = used_feedrate / 60
 		time_secs = max_distance_mm / velocity_mm_per_sec
-		time_secs = max(time_secs, self._min_command_execution_time_secs)
+		time_secs = max(time_secs, self._model_parameters["min_command_execution_time_secs"])
 		self._print_time_secs += time_secs
-		if (self._command_count % 100) == 0:
-			print("Estimate %f %f" % (self._print_time_secs, self._command_count / 100 / 1000))
+		if (self._execution_times is not None) and ((self._command_count % 100) == 0):
+			self._execution_times.append((self._print_time_secs, self._command_count / 100 / 1000))
 
 	def extrude(self, tool, old_pos, new_pos, extruded_length, max_feedrate):
 		velocity_mm_per_sec = max_feedrate / 60

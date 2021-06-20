@@ -44,7 +44,10 @@ def main():
 	mc = MultiCommand()
 
 	def genparser(parser):
+		parser.add_argument("-m", "--model-parameters", metavar = "filename", help = "JSON filename that may contain model parameters to use for simulating the machine execution speed.")
+		parser.add_argument("-s", "--output-speedplot", metavar = "filename", help = "JSON filename that contains detailed time/progress information.")
 		parser.add_argument("-t", "--filetype", choices = [ "auto", "g", "gx", "stl" ], default = "auto", help = "Filetype to assume for the file to be analyzed. Can be any of %(choices)s, defaults to %(default)s. 'auto' guesses the filetype based on the file name extension.")
+		parser.add_argument("-f", "--force", action = "store_true", help = "Overwrite output files even if they already exists.")
 		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
 		parser.add_argument("filename", nargs = "+", help = "File(s) to analyze")
 	mc.register("fileinfo", "Display information about a file", genparser, action = ActionFileInfo, aliases = [ "info" ])
