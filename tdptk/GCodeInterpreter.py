@@ -344,6 +344,7 @@ class GCodeSpeedHook(GCodeHook):
 		self._max_feedrate_mm_per_sec = 0
 		self._print_time_secs = 0
 		self._min_command_execution_time_secs = 0.04
+		self._command_count = 0
 
 	@property
 	def max_feedrate_mm_per_sec(self):
@@ -365,12 +366,32 @@ class GCodeSpeedHook(GCodeHook):
 		max_distance = max(distance_xy_plane, distance_yz_plane, distance_xy_plane)
 		return max_distance
 
+	def command(self, command):
+		self._command_count += 1
+
 	def movement(self, old_pos, new_pos, max_feedrate):
 		max_distance_mm = self._calc_max_distance(old_pos, new_pos)
-		velocity_mm_per_sec = max_feedrate / 60
+
+		actual_feedrate_minimum = max_feedrate * 0.2
+		feedrate_minimum_threshold = 0.05
+		actual_feedrate_maximum = max_feedrate
+		feedrate_maximum_threshold = 1.5
+
+		if max_distance_mm < feedrate_minimum_threshold:
+			used_feedrate = actual_feedrate_minimum
+		elif max_distance_mm > feedrate_maximum_threshold:
+			used_feedrate = actual_feedrate_maximum
+		else:
+			# Linear interpolation
+			ratio = (max_distance_mm - feedrate_minimum_threshold) / (feedrate_maximum_threshold - feedrate_minimum_threshold)
+			used_feedrate = actual_feedrate_minimum + ratio * (actual_feedrate_maximum - actual_feedrate_minimum)
+
+		velocity_mm_per_sec = used_feedrate / 60
 		time_secs = max_distance_mm / velocity_mm_per_sec
 		time_secs = max(time_secs, self._min_command_execution_time_secs)
 		self._print_time_secs += time_secs
+		if (self._command_count % 100) == 0:
+			print("Estimate %f %f" % (self._print_time_secs, self._command_count / 100 / 1000))
 
 	def extrude(self, tool, old_pos, new_pos, extruded_length, max_feedrate):
 		velocity_mm_per_sec = max_feedrate / 60
