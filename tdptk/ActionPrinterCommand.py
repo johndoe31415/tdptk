@@ -19,6 +19,8 @@
 #
 #	Johannes Bauer <JohannesBauer@gmx.de>
 
+import time
+import json
 from .BaseAction import BaseAction
 from .FlashForgeProtocol import FlashForgeProtocol
 from .PrinterURI import PrinterProtocol, PrinterURI
@@ -31,6 +33,24 @@ class ActionPrinterCommand(BaseAction):
 			self._conn.pause_print()
 		elif command == "resume":
 			self._conn.resume_print()
+		elif command == "info":
+			print(self._conn.get_machine_status())
+		elif command == "monitor":
+			while True:
+				progress = self._conn.get_machine_progress()
+				print("Progress: %.1f%%" % (progress.progress / progress.total * 100))
+				time.sleep(5)
+		elif command == "benchmark":
+			t0 = time.time()
+			while True:
+				pos = self._conn.get_current_position()
+				t = time.time()
+				trel = t - t0
+				data = { "t": t, "trel": trel, "A": pos["A"] }
+				print("%.3f: %.3f" % (trel, pos["A"]))
+				with open("benchmark.txt", "a") as f:
+					print(json.dumps(data), file = f)
+				time.sleep(1)
 		else:
 			raise NotImplementedError("Not implemented: %s" % (command))
 

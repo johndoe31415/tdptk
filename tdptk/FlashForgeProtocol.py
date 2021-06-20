@@ -28,6 +28,8 @@ from .ReceiveBuffer import ReceiveBuffer
 from .Exceptions import PrinterCommunicationException
 from .NamedStruct import NamedStruct
 
+PrintProgress = collections.namedtuple("PrintProgress", [ "progress", "total" ])
+
 class FlashForgeCommunicationException(PrinterCommunicationException): pass
 
 class GCodeChunk():
@@ -57,6 +59,7 @@ class GCodeChunk():
 
 class FlashForgeProtocol():
 	_MachineInformation = collections.namedtuple("MachineInformation", [ "machine_type", "machine_name", "firmware", "serial_number", "dimension_x", "dimension_y", "dimension_z", "tool_count", "mac_address" ])
+	_M27Regex = re.compile(r"SD printing byte (?P<progress>\d+)/(?P<total>\d+)")
 	_M115Regex = MultiRegex(collections.OrderedDict((
 		("m115_xyz", re.compile(r"X: (?P<x>\d+) Y: (?P<y>\d+) Z: (?P<z>\d+)")),
 		("m115_int", re.compile(r"(?P<key>Tool Count): (?P<value>\d+)")),
@@ -165,10 +168,27 @@ class FlashForgeProtocol():
 
 		return self._MachineInformation(**mic.values)
 
+	def get_machine_progress(self):
+		print_progress = self.tx_rx("M27")
+		match = self._M27Regex.fullmatch(print_progress[1])
+		if match is None:
+			raise FlashForgeCommunicationException("M27 yielded unexpected response: %s" % (str(print_progress)))
+		return PrintProgress(**{ key: int(value) for (key, value) in match.groupdict().items() })
+
 	def get_machine_status(self):
-		print(self.tx_rx("M27"))
+		print_progress = self.tx_rx("M27")
 		print(self.tx_rx("M119"))
 		self.tx_rx("M105")
+
+	def get_current_position(self):
+		response = self.tx_rx("M114")
+		axes = response[1].split()
+		result = { }
+		for axis_value in axes:
+			(axis, value) = axis_value.split(":", maxsplit = 1)
+			value = float(value)
+			result[axis] = value
+		return result
 
 	def move_home(self):
 		self.tx_rx("G28")

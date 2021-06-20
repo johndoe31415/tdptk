@@ -26,7 +26,7 @@ from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeSpeedHook,
 
 class ActionManipulate(BaseAction):
 	def _run_remove_extrusion(self):
-		hook = GCodeManipulationRemoveExtrusionHook()
+		hook = GCodeManipulationRemoveExtrusionHook(insert_timing_markers = self._args.insert_timing_markers)
 		GCodeParser(GCodeBaseInterpreter(hooks = [ hook ])).parse_all(self._gcode_data)
 		self._gcode_data = hook.serialize()
 

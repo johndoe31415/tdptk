@@ -42,7 +42,7 @@ class GCodes(enum.Enum):
 	EmergencyStop = "M112"
 
 class GCodeCommand():
-	def __init__(self, cmd_string, arg_string, comment, gcode_class = GCodes):
+	def __init__(self, cmd_string, arg_string, comment = None, gcode_class = GCodes):
 		try:
 			self._cmd = gcode_class(cmd_string)
 		except ValueError:
@@ -77,6 +77,10 @@ class GCodeCommand():
 		return self._arg_string
 
 	@property
+	def arg_count(self):
+		return len(self._dict)
+
+	@property
 	def comment(self):
 		return self._comment
 
@@ -105,6 +109,9 @@ class GCodeCommand():
 
 	def __getitem__(self, key):
 		return self._dict[key]
+
+	def __setitem__(self, key, value):
+		self._dict[key] = value
 
 	def __str__(self):
 		text = ""
@@ -336,7 +343,7 @@ class GCodeSpeedHook(GCodeHook):
 		super().__init__(self)
 		self._max_feedrate_mm_per_sec = 0
 		self._print_time_secs = 0
-		self._min_command_execution_time_secs = 0.07
+		self._min_command_execution_time_secs = 0.04
 
 	@property
 	def max_feedrate_mm_per_sec(self):
@@ -378,14 +385,40 @@ class GCodeManipulationHook(GCodeHook):
 		return "\n".join(str(cmd) for cmd in self._commands) + "\n"
 
 class GCodeManipulationRemoveExtrusionHook(GCodeManipulationHook):
+	def __init__(self, insert_timing_markers = False, timing_marker_interval = 100):
+		super().__init__()
+		self._insert_timing_markers = insert_timing_markers
+		self._timing_marker_interval = timing_marker_interval
+		self._command_count = 0
+		self._marker_id = 0
+
 	def command(self, command):
+		if self._insert_timing_markers and self._command_count == 0:
+			# Insert a command to reset extrusion axis
+			self._commands.append(GCodeCommand("G92", "E0"))
+
 		if command.cmd in [ GCodes.SetExtruderNozzleTemperature, GCodes.SetBedTemperature ]:
-			# Ignore these ones completely
-			return
+			# We cannot leave these commands out entirely, since then the
+			# printer will say "invalid file format" if they are not received
+			# within the first 500 commands
+			command["S"] = "0"
 		elif command.cmd in [ GCodes.RapidMovement, GCodes.ControlledMovement ]:
 			if command.has_arg("E"):
 				command.remove_arg("E")
+		elif self._insert_timing_markers and (command.cmd == GCodes.SetPositionToValue):
+			if command.has_arg("E"):
+				command.remove_arg("E")
+				if command.arg_count == 0:
+					# Omit this command entirely
+					return
 		self._commands.append(command)
+
+		if self._insert_timing_markers:
+			self._command_count += 1
+			if (self._command_count % self._timing_marker_interval) == 0:
+				# Insert a timing marker
+				self._marker_id += 1
+				self._commands.append(GCodeCommand("G92", "E%d.%03d" % (self._marker_id // 1000, self._marker_id % 1000)))
 
 class GCodeManipulationInsertProgressHook(GCodeManipulationHook):
 	def __init__(self, speed_hook, total_printing_time):

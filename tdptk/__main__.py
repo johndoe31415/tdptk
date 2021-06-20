@@ -65,7 +65,7 @@ def main():
 		parser.add_argument("-t", "--timeout", metavar = "secs", type = float, default = 1.0, help = "Command timeout in seconds, defaults to %(default).1f sec")
 		parser.add_argument("-u", "--uri", metavar = "uri", required = True, help = "Printer to connect to, using a scheme such as ff://myprinter for the FlashForge protocol")
 		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
-		parser.add_argument("commands", choices = [ "cancel", "resume", "info" ], nargs = "+", help = "Command(s) to execute. Can be one of %(choices)s.")
+		parser.add_argument("commands", choices = [ "cancel", "pause", "resume", "info", "monitor", "benchmark" ], nargs = "+", help = "Command(s) to execute. Can be one of %(choices)s.")
 	mc.register("command", "Execute a printer command such as stopping the print or querying information", genparser, action = ActionPrinterCommand, aliases = [ "cmd" ])
 
 	def genparser(parser):
@@ -118,6 +118,7 @@ def main():
 
 	def genparser(parser):
 		parser.add_argument("--remove-extrusion", action = "store_true", help = "Remove all extrusion and heating code.")
+		parser.add_argument("--insert-timing-markers", action = "store_true", help = "Insert timing markers for the extrusion axis. Will only do anything when --remove-extrusion is given as well.")
 		parser.add_argument("--insert-progress-comment", action = "store_true", help = "Insert FlashForge progress comments.")
 		parser.add_argument("-f", "--force", action = "store_true", help = "Overwrite output file even if it already exists.")
 		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
