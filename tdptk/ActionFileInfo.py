@@ -116,7 +116,7 @@ class ActionFileInfo(BaseAction):
 
 	def run(self):
 		if not self._args.force:
-			if os.path.exists(self._args.output_speedplot):
+			if (self._args.output_speedplot is not None) and os.path.exists(self._args.output_speedplot):
 				print("Refusing to overwrite: %s" % (self._args.output_speedplot))
 				sys.exit(1)
 

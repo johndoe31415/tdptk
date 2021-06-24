@@ -22,25 +22,18 @@
 
 import json
 import subprocess
-import collections
+import scipy.optimize
 from tdptk.GCodeInterpreter import GCodeSpeedHook
-import bokeh.models
-import bokeh.plotting
-import bokeh.io
 
-class BokehPlotter():
+class ModelFinder():
 	def __init__(self, gx_filename, reference_benchmark_filename):
 		self._gx_filename = gx_filename
 		self._reference_benchmark_file = reference_benchmark_filename
+		self._bounds = tuple((param.minvalue, param.maxvalue) for param in GCodeSpeedHook.ModelParameters)
 		self._reference_plot = self._read_reference_plot()
-		self._parameters = { param.name: param.default for param in GCodeSpeedHook.ModelParameters }
-		self._controls = None
 
 	def _read_reference_plot(self):
-		points = {
-			"x": [ ],
-			"y": [ ],
-		}
+		points = { }
 		with open(self._reference_benchmark_file) as f:
 			filestate = "pre_data"
 			for line in f:
@@ -54,8 +47,8 @@ class BokehPlotter():
 					break
 
 				if filestate == "data":
-					points["x"].append(x)
-					points["y"].append(y)
+					if y not in points:
+						points[y] = x
 			return points
 
 	def _create_estimated_plot(self):
@@ -63,32 +56,41 @@ class BokehPlotter():
 			json.dump(self._parameters, f)
 		subprocess.check_call([ "./tdptk.py", "info", "-f", "-s", "output.json", "-m", "model.json", self._gx_filename ])
 		with open("output.json") as f:
-			return json.load(f)
+			json_data = json.load(f)
+			points = { }
+			for (x, y) in zip(json_data["x"], json_data["y"]):
+				if y not in points:
+					points[y] = x
+			return points
 
-	def _update_data(self, attr, old, new):
-		for (name, control) in self._controls.items():
-			self._parameters[name] = control.value
-		self._source_estimate.data = self._create_estimated_plot()
+	def _objective(self, parameter_set):
+		parameter_dict = { param.name: current_value for (param, current_value) in zip(GCodeSpeedHook.ModelParameters, parameter_set) }
 
-	def plot(self):
-		source_reference = bokeh.models.ColumnDataSource(data = self._reference_plot)
-		self._source_estimate = bokeh.models.ColumnDataSource(data = self._create_estimated_plot())
-		self._plot = bokeh.plotting.figure(width = 1280, height = 720, title = "3d Printer Time Estimate", tools = "crosshair,pan,reset,save,wheel_zoom")
-		self._plot.line("x", "y", source = source_reference, line_width = 2, line_alpha = 0.6, line_color = "red")
-		self._plot.line("x", "y", source = self._source_estimate, line_width = 2, line_alpha = 0.6)
+		for param in GCodeSpeedHook.ModelParameters:
+			if param.constraints is not None:
+				for constraint in param.constraints:
+					if not constraint(parameter_dict):
+						return float("inf")
 
-		self._controls = collections.OrderedDict([
-				(param.name, bokeh.models.Slider(title = param.name, value = param.default, start = param.minvalue, end = param.maxvalue, step = (param.maxvalue - param.minvalue) / 100))
-				for param in GCodeSpeedHook.ModelParameters
-		])
-		for control in self._controls.values():
-			control.on_change("value", self._update_data)
+		self._parameters = parameter_dict
 
-		menu = bokeh.layouts.column(*self._controls.values())
+		reference_plot = self._reference_plot
+		estimated_plot = self._create_estimated_plot()
 
-		bokeh.io.curdoc().add_root(bokeh.layouts.row(menu, self._plot, width = 1700))
-		bokeh.io.curdoc().title = "Time Estimate"
+		error = 0
+		for (x_ref, y_ref) in reference_plot.items():
+			if x_ref in estimated_plot:
+				y_est = estimated_plot[x_ref]
+				error += (y_ref - y_est) ** 2
+
+		print(parameter_dict, error)
+		return error
+
+	def optimize(self):
+		result = scipy.optimize.differential_evolution(self._objective, self._bounds)
+		print(result)
+
+finder = ModelFinder("timing/timing.gx", "timing/benchmark.txt")
+finder.optimize()
 
 
-plotter = BokehPlotter("timing/timing.gx", "timing/benchmark.txt")
-plotter.plot()

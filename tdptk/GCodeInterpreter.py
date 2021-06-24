@@ -25,6 +25,7 @@ import math
 import collections
 import numpy
 from .Exceptions import MalformedGcodeException
+from .Vector import Vector3D
 
 class GCodes(enum.Enum):
 	RapidMovement = "G0"
@@ -339,16 +340,24 @@ class GCodePOVRayHook(GCodeHook):
 		self._renderer.add_cylinder(old_pos, new_pos)
 
 class GCodeSpeedHook(GCodeHook):
-	_DEFAULT_MACHINE_PARAMETERS = {
-		"min_command_execution_time_secs": 0.04,
-	}
+	ModelParameter = collections.namedtuple("ModelParameter", [ "name", "default", "minvalue", "maxvalue", "constraints" ])
+	ModelParameters = [
+		ModelParameter(name = "min_command_execution_time_secs", default = 0.04, minvalue = 0.0, maxvalue = 0.1, constraints = None),
+		ModelParameter(name = "feedrate_ramp_min_coefficient", default = 0.2, minvalue = 0.0, maxvalue = 1.0, constraints = None),
+		ModelParameter(name = "feedrate_ramp_min_threshold", default = 0.05, minvalue = 0.0, maxvalue = 3.0, constraints = None),
+		ModelParameter(name = "feedrate_ramp_max_coefficient", default = 1.0, minvalue = 0.0, maxvalue = 1.0, constraints = [ lambda params: params["feedrate_ramp_max_coefficient"] > params["feedrate_ramp_min_coefficient"] ]),
+		ModelParameter(name = "feedrate_ramp_max_threshold", default = 1.5, minvalue = 0.0, maxvalue = 3.0, constraints = [ lambda params: params["feedrate_ramp_max_threshold"] > params["feedrate_ramp_min_threshold"] ]),
+		ModelParameter(name = "penalty_threshold", default = 5, minvalue = 0, maxvalue = 30, constraints = None),
+		ModelParameter(name = "max_penalty_time_secs", default = 0.05, minvalue = 0.0, maxvalue = 0.3, constraints = None),
+		ModelParameter(name = "machine_startup_time_secs", default = 45, minvalue = 0, maxvalue = 120, constraints = None),
+	]
 
 	def __init__(self, model_parameters = None, log_execution_time = False):
 		super().__init__(self)
 		self._max_feedrate_mm_per_sec = 0
 		self._print_time_secs = 0
 		if model_parameters is None:
-			self._model_parameters = self._DEFAULT_MACHINE_PARAMETERS
+			self._model_parameters = { param.name: param.default for param in self.ModelParameters }
 		else:
 			self._model_parameters = model_parameters
 		if log_execution_time:
@@ -356,6 +365,7 @@ class GCodeSpeedHook(GCodeHook):
 		else:
 			self._execution_times = None
 		self._command_count = 0
+		self._last_movement_vector = None
 
 	@property
 	def execution_times(self):
@@ -383,26 +393,44 @@ class GCodeSpeedHook(GCodeHook):
 
 	def command(self, command):
 		self._command_count += 1
+		if self._command_count == 1:
+			self._print_time_secs += self._model_parameters["machine_startup_time_secs"]
 
 	def movement(self, old_pos, new_pos, max_feedrate):
 		max_distance_mm = self._calc_max_distance(old_pos, new_pos)
 
-		actual_feedrate_minimum = max_feedrate * 0.2
-		feedrate_minimum_threshold = 0.05
-		actual_feedrate_maximum = max_feedrate
-		feedrate_maximum_threshold = 1.5
-
-		if max_distance_mm < feedrate_minimum_threshold:
-			used_feedrate = actual_feedrate_minimum
-		elif max_distance_mm > feedrate_maximum_threshold:
-			used_feedrate = actual_feedrate_maximum
+		if max_distance_mm < self._model_parameters["feedrate_ramp_min_threshold"]:
+			used_feedrate = max_feedrate * self._model_parameters["feedrate_ramp_min_coefficient"]
+		elif max_distance_mm > self._model_parameters["feedrate_ramp_max_threshold"]:
+			used_feedrate = max_feedrate * self._model_parameters["feedrate_ramp_max_coefficient"]
 		else:
 			# Linear interpolation
-			ratio = (max_distance_mm - feedrate_minimum_threshold) / (feedrate_maximum_threshold - feedrate_minimum_threshold)
-			used_feedrate = actual_feedrate_minimum + ratio * (actual_feedrate_maximum - actual_feedrate_minimum)
+			ratio = (max_distance_mm - self._model_parameters["feedrate_ramp_min_threshold"]) / (self._model_parameters["feedrate_ramp_max_threshold"] - self._model_parameters["feedrate_ramp_min_threshold"])
+			used_feedrate = max_feedrate * (self._model_parameters["feedrate_ramp_min_coefficient"] + ratio * (self._model_parameters["feedrate_ramp_max_coefficient"] - self._model_parameters["feedrate_ramp_min_coefficient"]))
+
+		if used_feedrate < 1e-3:
+			# Something is way off. Possibly garbage parameter input.
+			return
 
 		velocity_mm_per_sec = used_feedrate / 60
-		time_secs = max_distance_mm / velocity_mm_per_sec
+
+		penalty_time = 0
+		old_vector = Vector3D(old_pos["X"], old_pos["Y"], old_pos["Z"])
+		new_vector = Vector3D(new_pos["X"], new_pos["Y"], new_pos["Z"])
+		movement_vector = new_vector - old_vector
+		if movement_vector.length > 0:
+			movement_vector = movement_vector.norm * velocity_mm_per_sec
+			if self._last_movement_vector is not None:
+				diff_vector = movement_vector - self._last_movement_vector
+				penalty_factor = diff_vector.length
+				if penalty_factor > self._model_parameters["penalty_threshold"]:
+					penalty_time = self._model_parameters["max_penalty_time_secs"]
+				else:
+					penalty_time = penalty_factor / self._model_parameters["penalty_threshold"] * self._model_parameters["max_penalty_time_secs"]
+			self._last_movement_vector = movement_vector
+
+
+		time_secs = (max_distance_mm / velocity_mm_per_sec) + penalty_time
 		time_secs = max(time_secs, self._model_parameters["min_command_execution_time_secs"])
 		self._print_time_secs += time_secs
 		if (self._execution_times is not None) and ((self._command_count % 100) == 0):
