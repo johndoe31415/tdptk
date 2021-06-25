@@ -26,32 +26,18 @@ import bokeh.io
 import bokeh.server.server
 from .BaseAction import BaseAction
 from .BenchmarkingTools import BenchmarkingTools
-from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeSpeedHook
+from .GCodeHelpers import GCodeHelpers
+from .GCodeInterpreter import GCodeSpeedHook
 
 class ActionModelPlot(BaseAction):
-	def _estimate_timing(self, model_parameters):
-		speed = GCodeSpeedHook(model_parameters = model_parameters, log_execution_time = True)
-		interpreter = GCodeBaseInterpreter(hooks = [ speed ])
-		parser = GCodeParser(interpreter)
-		parser.parse_all(self._gcode)
-
-		data = {
-			"x":	[ ],
-			"y":	[ ],
-		}
-		for (x, y) in speed.execution_times:
-			data["x"].append(x)
-			data["y"].append(y)
-		return data
-
 	def _update_data(self, attr, old, new):
 		for (name, control) in self._controls.items():
 			self._parameters[name] = control.value
-		self._source_estimate.data = self._estimate_timing(self._parameters)
+		self._source_estimate.data = GCodeHelpers.estimate_gcode_timing(self._gcode, self._parameters)
 
 	def _create_bokeh_plot(self, doc):
 		source_reference = bokeh.models.ColumnDataSource(data = self._reference_plot)
-		self._source_estimate = bokeh.models.ColumnDataSource(data = self._estimate_timing(self._parameters))
+		self._source_estimate = bokeh.models.ColumnDataSource(data = GCodeHelpers.estimate_gcode_timing(self._gcode, self._parameters))
 		self._plot = bokeh.plotting.figure(width = 1280, height = 720, title = "3d Printer Time Estimate", tools = "crosshair,pan,reset,save,wheel_zoom")
 		self._plot.line("x", "y", source = source_reference, line_width = 2, line_alpha = 0.6, line_color = "red")
 		self._plot.line("x", "y", source = self._source_estimate, line_width = 2, line_alpha = 0.6)
