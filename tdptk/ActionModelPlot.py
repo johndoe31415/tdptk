@@ -20,6 +20,7 @@
 #	Johannes Bauer <JohannesBauer@gmx.de>
 
 import collections
+import json
 import bokeh.models
 import bokeh.plotting
 import bokeh.io
@@ -43,7 +44,7 @@ class ActionModelPlot(BaseAction):
 		self._plot.line("x", "y", source = self._source_estimate, line_width = 2, line_alpha = 0.6)
 
 		self._controls = collections.OrderedDict([
-				(param.name, bokeh.models.Slider(title = param.name, value = param.default, start = param.minvalue, end = param.maxvalue, step = (param.maxvalue - param.minvalue) / 100))
+				(param.name, bokeh.models.Slider(title = param.name, value = self._parameters[param.name], start = param.minvalue, end = param.maxvalue, step = (param.maxvalue - param.minvalue) / 100))
 				for param in GCodeSpeedHook.ModelParameters
 		])
 		for control in self._controls.values():
@@ -63,6 +64,10 @@ class ActionModelPlot(BaseAction):
 		with open(self._args.gcode_filename) as f:
 			self._gcode = f.read()
 		self._reference_plot = BenchmarkingTools.read_benchmark_file(self._args.benchmark_filename)
-		self._parameters = { param.name: param.default for param in GCodeSpeedHook.ModelParameters }
-
+		if self._args.model is None:
+			model = { }
+		else:
+			with open(self._args.model) as f:
+				model = json.load(f)
+		self._parameters = { param.name: model.get(param.name, param.default) for param in GCodeSpeedHook.ModelParameters }
 		self._start_bokeh_server()

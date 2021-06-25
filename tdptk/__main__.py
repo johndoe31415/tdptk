@@ -132,6 +132,7 @@ def main():
 	mc.register("manipulate", "Manipulate G-Code, e.g., by removing all extrusion/heating commands", genparser, action = ActionManipulate)
 
 	def genparser(parser):
+		parser.add_argument("-m", "--model", metavar = "filename", help = "Use the model parameters from this input file instead of defaults.")
 		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
 		parser.add_argument("gcode_filename", help = "GCode used for benchmarking")
 		parser.add_argument("benchmark_filename", help = "Captured benchmarking measurement results")
