@@ -1,4 +1,3 @@
-#!/usr/bin/python3
 #	tdptk - 3d Printing Toolkit
 #	Copyright (C) 2021-2021 Johannes Bauer
 #
@@ -20,59 +19,39 @@
 #
 #	Johannes Bauer <JohannesBauer@gmx.de>
 
-import json
-import subprocess
 import collections
-from tdptk.GCodeInterpreter import GCodeSpeedHook
 import bokeh.models
 import bokeh.plotting
 import bokeh.io
+import bokeh.server.server
+from .BaseAction import BaseAction
+from .BenchmarkingTools import BenchmarkingTools
+from .GCodeInterpreter import GCodeBaseInterpreter, GCodeParser, GCodeSpeedHook
 
-class BokehPlotter():
-	def __init__(self, gx_filename, reference_benchmark_filename):
-		self._gx_filename = gx_filename
-		self._reference_benchmark_file = reference_benchmark_filename
-		self._reference_plot = self._read_reference_plot()
-		self._parameters = { param.name: param.default for param in GCodeSpeedHook.ModelParameters }
-		self._controls = None
+class ActionModelPlot(BaseAction):
+	def _estimate_timing(self, model_parameters):
+		speed = GCodeSpeedHook(model_parameters = model_parameters, log_execution_time = True)
+		interpreter = GCodeBaseInterpreter(hooks = [ speed ])
+		parser = GCodeParser(interpreter)
+		parser.parse_all(self._gcode)
 
-	def _read_reference_plot(self):
-		points = {
-			"x": [ ],
-			"y": [ ],
+		data = {
+			"x":	[ ],
+			"y":	[ ],
 		}
-		with open(self._reference_benchmark_file) as f:
-			filestate = "pre_data"
-			for line in f:
-				line = json.loads(line)
-				(x, y) = (line["trel"], line["A"])
-
-				if (filestate == "pre_data") and (y > 0):
-					filestate = "data"
-
-				if (filestate == "data") and (y == 0):
-					break
-
-				if filestate == "data":
-					points["x"].append(x)
-					points["y"].append(y)
-			return points
-
-	def _create_estimated_plot(self):
-		with open("model.json", "w") as f:
-			json.dump(self._parameters, f)
-		subprocess.check_call([ "./tdptk.py", "info", "-f", "-s", "output.json", "-m", "model.json", self._gx_filename ])
-		with open("output.json") as f:
-			return json.load(f)
+		for (x, y) in speed.execution_times:
+			data["x"].append(x)
+			data["y"].append(y)
+		return data
 
 	def _update_data(self, attr, old, new):
 		for (name, control) in self._controls.items():
 			self._parameters[name] = control.value
-		self._source_estimate.data = self._create_estimated_plot()
+		self._source_estimate.data = self._estimate_timing(self._parameters)
 
-	def plot(self):
+	def _create_bokeh_plot(self, doc):
 		source_reference = bokeh.models.ColumnDataSource(data = self._reference_plot)
-		self._source_estimate = bokeh.models.ColumnDataSource(data = self._create_estimated_plot())
+		self._source_estimate = bokeh.models.ColumnDataSource(data = self._estimate_timing(self._parameters))
 		self._plot = bokeh.plotting.figure(width = 1280, height = 720, title = "3d Printer Time Estimate", tools = "crosshair,pan,reset,save,wheel_zoom")
 		self._plot.line("x", "y", source = source_reference, line_width = 2, line_alpha = 0.6, line_color = "red")
 		self._plot.line("x", "y", source = self._source_estimate, line_width = 2, line_alpha = 0.6)
@@ -85,10 +64,19 @@ class BokehPlotter():
 			control.on_change("value", self._update_data)
 
 		menu = bokeh.layouts.column(*self._controls.values())
+		doc.add_root(bokeh.layouts.row(menu, self._plot, width = 1700))
+		doc.title = "Time Estimate"
 
-		bokeh.io.curdoc().add_root(bokeh.layouts.row(menu, self._plot, width = 1700))
-		bokeh.io.curdoc().title = "Time Estimate"
+	def _start_bokeh_server(self):
+		server = bokeh.server.server.Server({ "/": self._create_bokeh_plot })
+		server.start()
+		server.io_loop.add_callback(server.show, "/")
+		server.io_loop.start()
 
+	def run(self):
+		with open(self._args.gcode_filename) as f:
+			self._gcode = f.read()
+		self._reference_plot = BenchmarkingTools.read_benchmark_file(self._args.benchmark_filename)
+		self._parameters = { param.name: param.default for param in GCodeSpeedHook.ModelParameters }
 
-plotter = BokehPlotter("timing/timing.gx", "timing/benchmark.txt")
-plotter.plot()
+		self._start_bokeh_server()

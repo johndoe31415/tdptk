@@ -31,6 +31,8 @@ from .ActionCreateGX import ActionCreateGX
 from .ActionPrint import ActionPrint
 from .ActionRender import ActionRender
 from .ActionManipulate import ActionManipulate
+from .ActionModelPlot import ActionModelPlot
+from .ActionModelEstimate import ActionModelEstimate
 from .XGCodeFile import XGCodeMaterials
 
 def _dimensions(text):
@@ -128,5 +130,19 @@ def main():
 		parser.add_argument("input_filename", help = "GCode input file")
 		parser.add_argument("output_filename", help = "GCode output file")
 	mc.register("manipulate", "Manipulate G-Code, e.g., by removing all extrusion/heating commands", genparser, action = ActionManipulate)
+
+	def genparser(parser):
+		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
+		parser.add_argument("gcode_filename", help = "GCode used for benchmarking")
+		parser.add_argument("benchmark_filename", help = "Captured benchmarking measurement results")
+	mc.register("model-plot", "Use Bokeh to serve an application which plots a model estimate against real output", genparser, action = ActionModelPlot)
+
+	def genparser(parser):
+		parser.add_argument("-f", "--force", action = "store_true", help = "Overwrite output file even if it already exists.")
+		parser.add_argument("-v", "--verbose", action = "count", default = 0, help = "Increase verbosity during the importing process.")
+		parser.add_argument("gcode_filename", help = "GCode used for benchmarking")
+		parser.add_argument("benchmark_filename", help = "Captured benchmarking measurement results")
+		parser.add_argument("parameter_output_filename", help = "Write best approximation of model parameters to this file")
+	mc.register("model-estimate", "Use a differntial evolution approach in SciPy to estimate model parameters", genparser, action = ActionModelEstimate)
 
 	mc.run(sys.argv[1:])
