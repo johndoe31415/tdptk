@@ -24,7 +24,9 @@ Options vary from command to command. To receive further info, type
     ./tdptk.py [command] --help
     fileinfo           Display information about a file
     status             Display status of connected printer(s)
-    cmd                Directly execute a Gerber command
+    gerber             Directly execute a Gerber command
+    command            Execute a printer command such as stopping the print or
+                       querying information
     split-gx           Split a .gx file into metadata, preview bitmap and
                        Gerber data
     merge-gx           Merge a .gx file from metadata, preview bitmap and
@@ -34,6 +36,10 @@ Options vary from command to command. To receive further info, type
     render             Do a 3d rendering of GCode using POV-Ray
     manipulate         Manipulate G-Code, e.g., by removing all
                        extrusion/heating commands
+    model-plot         Use Bokeh to serve an application which plots a model
+                       estimate against real output
+    model-estimate     Use a differntial evolution approach in SciPy to
+                       estimate model parameters
 
 $ ./tdptk.py render --help
 usage: ./tdptk.py render [-m {fast,default}] [-p option] [-d width x height]
@@ -76,6 +82,54 @@ optional arguments:
   --help                Show this help page.
 ```
 
+## Benchmarking a Machine
+To accurately estimate the time a print takes, the machine needs to be modeled.
+This means, the specific constraints under which move or extrude operations
+occur need to be estimated. This is not straightforward and small errors add up
+through thousands of Gerber commands.
+
+tdptk takes this approach to this problem: We first take a real-world print
+file, which can be arbitrary but should contain as much operations as happens
+in the real world (e.g., many small movements, but also some large movements).
+Then, we strip out all extrusion functionality from this G-code so we can run
+it on the actual machine as a "dry run". We also use tdptk to insert G92 codes
+every 100 instructions to set the E axis (which is not going to be used in the
+dry run) so we can continuously query it outside as a kind of "progress
+indicator".
+
+Then, we let the machine print and benchmark it: We query over the network the
+"E" position and record timestamps.
+
+This gives us the G-code file we used to print and a benchmark file which
+records real-world timings of that G-code. We use this together with scipy's
+differential evolution algorithm to estimate a parameter file.
+
+Here's how it's all done. First, preparing a real G-code print file and
+transforming it into a "dry-run" G-code file:
+
+```
+$ ./tdptk.py manipulate --remove-extrusion --insert-timing-markers input.g dryrun.g
+```
+
+Then, benchmarking it (you need to print the dryrun.g file while this runs):
+
+```
+$ ./tdptk.py cmd -u ff://myprinter benchmark
+```
+
+This creates a file called "benchmark.txt". We use this file to trigger the
+differential evolution algorithm:
+
+```
+$ ./tdptk.py model-estimate dryrun.g benchmark.txt model_parameters.json
+```
+
+Then, we can plot those model parameters and compare how well they stack up
+against our real-world measurements:
+
+```
+$ ./tdptk.py model-plot -m model_parameters.json dryrun.g benchmark.txt 
+```
 
 ## Example
 This is an example of a rendered STL input:
@@ -86,12 +140,21 @@ Here's an example of a 3D rendering of G-code:
 
 ![3D Rendering of G-Code](https://raw.githubusercontent.com/johndoe31415/tdptk/master/doc/rendering_g.png)
 
+
 ## Disclaimer
 I own a Bresser Rex -- this is essentially a FlashForge Adventurer 3 (also sold
 as the "Monoprice Voxel"). All of my development has been tested with that
 printer. While I do have included some support for features which my printer
 obviously doesn't have (like dual extruders), I have no way to test those.
 
+
+## Dependencies
+tdptk requires Python3 and mako. If you want to 3D render things, you also need
+POV-ray and ImageMagick installed. For the "model-estimate" functionality you
+need scipy. For the "model-plot" functionality you need Bokeh. Both
+"model-estimate" and "model-plot" facilities will simply not appear when
+scipy/Bokeh are not installed, but the remaining functionality of tdptk will
+still work.
 
 ## License
 GNU GPL-3.
